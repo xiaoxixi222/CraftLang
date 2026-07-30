@@ -1,0 +1,33 @@
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build
+build*/
+cmake-build-*/
+out/
+
+# Temp
+tmp/
+*.tmp
+*.temp
+
+# Output
+output_datapack/
+
+# OS
+.DS_Store
+Thumbs.db
+*.~*
+
+# Libraries
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+
+# vcpkg
+vcpkg_installed/
