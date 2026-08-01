@@ -6,17 +6,13 @@
 
 - **编译器**：GCC / Clang（支持 C++17）
 - **CMake** >= 3.15
-- **Flex**（CppParser 依赖）
-- **CppParser**：`third_party/cpp-parser/`（`git submodule update --init`）
+- **libclang**（LLVM/Clang C 接口，用于解析并生成 AST）
 - **nlohmann/json**：`third_party/json/json.hpp`
 
 ## 构建
 
 ```bash
-# 拉取第三方依赖（如未克隆）
-git submodule update --init --recursive
-
-# 配置
+# 配置（如 libclang 未自动找到，追加 -DLibClang_ROOT=<路径>）
 cmake -B build
 
 # 编译

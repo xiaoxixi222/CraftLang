@@ -4,6 +4,8 @@ project(CraftLang VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ── Source files ────────────────────────────────────────────────────
 file(GLOB_RECURSE SOURCES
     "${CMAKE_SOURCE_DIR}/src/*.cpp"
@@ -18,24 +20,6 @@ target_include_directories(craftlang PRIVATE
     "${CMAKE_SOURCE_DIR}/include"
 )
 
-# ── Library & package search paths ──────────────────────────────────
-link_directories(
-    "${CMAKE_SOURCE_DIR}/lib"
-    "${CMAKE_SOURCE_DIR}/packages"
-)
-
-file(GLOB_RECURSE EXTERNAL_LIBS
-    "${CMAKE_SOURCE_DIR}/lib/*.lib"
-    "${CMAKE_SOURCE_DIR}/lib/*.a"
-    "${CMAKE_SOURCE_DIR}/packages/*.lib"
-    "${CMAKE_SOURCE_DIR}/packages/*.a"
-)
-
-if(EXTERNAL_LIBS)
-    target_link_libraries(craftlang PRIVATE ${EXTERNAL_LIBS})
-    message(STATUS "Linking external libraries: ${EXTERNAL_LIBS}")
-endif()
-
 # ── Third-party dependencies ────────────────────────────────────────
 # nlohmann/json (header-only)
 if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/json/json.hpp")
@@ -45,13 +29,13 @@ else()
     message(WARNING "nlohmann/json.hpp not found in third_party/json/")
 endif()
 
-# CppParser (vendored via add_subdirectory)
-if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/cpp-parser/CMakeLists.txt")
-    add_subdirectory("${CMAKE_SOURCE_DIR}/third_party/cpp-parser")
-    target_link_libraries(craftlang PRIVATE cppparser)
-    message(STATUS "CppParser found in third_party/cpp-parser")
+# libclang (LLVM/Clang 的 C 接口) — 通过 find_package 或 -DLibClang_ROOT 指定
+find_package(libclang CONFIG QUIET)
+if(libclang_FOUND)
+    target_link_libraries(craftlang PRIVATE libclang)
+    message(STATUS "libclang found via find_package")
 else()
-    message(WARNING "CppParser not found in third_party/cpp-parser/")
+    message(WARNING "libclang not found; set -DLibClang_ROOT=<path> or install libclang")
 endif()
 
 # ── Compiler flags ──────────────────────────────────────────────────
