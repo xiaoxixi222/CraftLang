@@ -21,22 +21,44 @@ target_include_directories(craftlang PRIVATE
 )
 
 # ── Third-party dependencies ────────────────────────────────────────
-# nlohmann/json (header-only)
-if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/json/json.hpp")
-    target_include_directories(craftlang PRIVATE "${CMAKE_SOURCE_DIR}/third_party/json")
-    message(STATUS "nlohmann/json found in third_party/json")
+# libclang (LLVM/Clang 的 C 接口)
+if(DEFINED ENV{LIBCLANG_PATH})
+    set(LIBCLANG_ROOT "$ENV{LIBCLANG_PATH}")
 else()
-    message(WARNING "nlohmann/json.hpp not found in third_party/json/")
+    set(LIBCLANG_ROOT "" CACHE PATH "libclang 安装路径（含 include/ 和 lib/）")
 endif()
 
-# libclang (LLVM/Clang 的 C 接口) — 通过 find_package 或 -DLibClang_ROOT 指定
-find_package(libclang CONFIG QUIET)
-if(libclang_FOUND)
-    target_link_libraries(craftlang PRIVATE libclang)
-    message(STATUS "libclang found via find_package")
-else()
-    message(WARNING "libclang not found; set -DLibClang_ROOT=<path> or install libclang")
+if(NOT LIBCLANG_ROOT)
+    message(FATAL_ERROR "LIBCLANG_PATH 环境变量未设置或路径无效")
 endif()
+
+# 统一为正斜杠，避免反斜杠转义和空格导致链接失败
+file(TO_CMAKE_PATH "${LIBCLANG_ROOT}" LIBCLANG_ROOT)
+
+target_include_directories(craftlang PRIVATE "${LIBCLANG_ROOT}/include")
+
+# 注入项目 include 绝对路径，供 libclang 运行期解析用户源码时定位 <mcstd.h> 等头文件
+target_compile_definitions(craftlang PRIVATE
+    "CRAFTLANG_SRC_INCLUDE=\"${CMAKE_SOURCE_DIR}/include\""
+)
+
+# Windows 用 libclang.lib（MinGW 下即 libclang.dll.a 的导入库）
+if(WIN32)
+    target_link_libraries(craftlang PRIVATE "${LIBCLANG_ROOT}/lib/libclang.lib")
+else()
+    target_link_libraries(craftlang PRIVATE "${LIBCLANG_ROOT}/lib/libclang.so")
+endif()
+
+# 构建后将 libclang.dll 复制到可执行文件旁
+if(WIN32)
+    add_custom_command(TARGET craftlang POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${LIBCLANG_ROOT}/bin/libclang.dll"
+            "$<TARGET_FILE_DIR:craftlang>"
+    )
+endif()
+
+message(STATUS "libclang found at ${LIBCLANG_ROOT}")
 
 # ── Compiler flags ──────────────────────────────────────────────────
 if(MSVC)
