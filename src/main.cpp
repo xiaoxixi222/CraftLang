@@ -1,21 +1,48 @@
 #include <craftlang/lang.h>
+#include <craftlang/compiler.h>
+#include <craftlang/config.h>
 
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 #include <clang-c/Index.h> // libclang 头文件
+#include <json.hpp>        // nlohmann/json 头文件
+
+using json = nlohmann::json;
+
+craftlang::Config config; // 使用 craftlang 的配置结构体
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        std::cerr << "Usage: craftlang <source-file.c>\n";
+        std::cerr << "Usage: craftlang <source-file.c> <setting.json>\n";
         return 1;
     }
 
     std::string filePath = argv[1];
+    std::string settingFilePath = argv[2];
     std::cout << "Input file: " << filePath << "\n";
+    std::cout << "Setting file: " << settingFilePath << "\n";
+
+    std::ifstream file(settingFilePath);
+    if (!file.is_open()) {
+        std::cerr << "failed to open " << settingFilePath << std::endl;
+        return 1;
+    }
+
+    // 把整个文件内容读到字符串
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string content = buffer.str();
+    json config_json = json::parse(content);
+    config.name = config_json["name"].get<std::string>();
+    config.pack_format = config_json["pack_format"].get<int>();
+    config.description = config_json["description"].get<std::string>();
 
     // libclang 解析与 AST 遍历
     // 1. 创建索引
@@ -63,6 +90,9 @@ int main(int argc, char *argv[])
         clang_disposeString(msg);
         clang_disposeDiagnostic(diag);
     }
+    if (diagCount > 0){
+        throw std::runtime_error("parse error\n"); // 解析失败，抛出异常
+    }
 
     // 3. 获取翻译单元的根游标（Cursor）
     CXCursor rootCursor = clang_getTranslationUnitCursor(unit);
@@ -79,6 +109,7 @@ int main(int argc, char *argv[])
     clang_visitChildren(rootCursor, craftlang::collectChildrenCallback,
                         nullptr); // 先收集子节点
     craftlang::visitCursorRecursive(rootCursor, 0);
+    craftlang::compile(rootCursor);
 
     // 5. 释放资源
     clang_disposeTranslationUnit(unit);

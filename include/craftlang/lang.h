@@ -4,6 +4,7 @@
 #include <clang-c/Index.h>
 #include <cstdint>
 #include <cstddef>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -45,7 +46,6 @@ CXChildVisitResult collectChildrenCallback(CXCursor cursor, CXCursor parent,
 std::vector<CXCursor> getChildCursors(CXCursor cursor);
 void printSpelling(CXCursor cursor);
 void visitCursorRecursive(CXCursor cursor, int depth);
-
 } // namespace craftlang
 
 #endif // CRAFTLANG_LANG_H

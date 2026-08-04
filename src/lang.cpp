@@ -6,6 +6,7 @@ namespace craftlang
     // 全局变量，用于存储所有子节点
     std::unordered_map<CXCursor, Cursor, CursorHash, CursorEqual>
         all_cursors;
+
     // 回调函数：只负责收集直接子节点
     CXChildVisitResult collectChildrenCallback(CXCursor cursor, CXCursor parent,
                                                CXClientData client_data)
@@ -59,4 +60,4 @@ namespace craftlang
             visitCursorRecursive(child, depth + 1);
         }
     }
-}
+} // namespace craftlang

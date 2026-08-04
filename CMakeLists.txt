@@ -18,6 +18,7 @@ add_executable(craftlang ${SOURCES})
 # ── Include directories ────────────────────────────────────────────
 target_include_directories(craftlang PRIVATE
     "${CMAKE_SOURCE_DIR}/include"
+    "${CMAKE_SOURCE_DIR}/third_party/json"
 )
 
 # ── Third-party dependencies ────────────────────────────────────────
