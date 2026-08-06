@@ -24,6 +24,12 @@ namespace craftlang
         CXCursor cursor;
     };
 
+    struct Var{
+        std::string name;
+        CXType type;
+        int number;
+    };
+
     void compile(CXCursor root_cursor);
 
 } // namespace craftlang

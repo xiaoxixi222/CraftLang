@@ -25,11 +25,50 @@ namespace craftlang
     fs::path current_file = "";
     fs::path function_path = "";
     Function current_function;
-    std::unordered_map<std::string, int> localVarsToInt = {};  // 局部变量的编号
-    std::unordered_map<std::string, int> globalVarsToInt = {}; // 全局变量的编号
+    std::unordered_map<std::string, Var> localVarsToInt = {};  // 局部变量的编号
+    std::unordered_map<std::string, Var> globalVarsToInt = {}; // 全局变量的编号
     int localVarCounter = 0, globalVarCounter = 0;
 
-    static void deal_cursor(CXCursor cursor)
+    std::string addDollarPrefix(const std::string &text)
+    {
+        std::string result;
+        std::istringstream iss(text); // 已经 include 了 <sstream>
+        std::string line;
+        bool first = true;
+        while (std::getline(iss, line))
+        {
+            if (!first)
+                result += "\n";
+            first = false;
+            if (line.find("$") != std::string::npos)
+                result += "$";
+            result += line;
+        }
+        return result;
+    }
+
+    std::string initVar(std::string name, CXTypeKind type, std::string value)
+    {
+        std::string init = "";
+        switch (type)
+        {
+        case CXType_Int:
+        {
+            init = std::string("scoreboard objectives remove ") + name +
+                   "\nscoreboard objectives add " + name + " dummy\n" +
+                   "scoreboard players set " + config.name + " " + name + " " + value + "\n";
+            break;
+        }
+        default:
+        {
+            std::cerr << "unsupported type: " << clang_getCString(clang_getTypeKindSpelling(type)) << std::endl;
+            throw std::runtime_error(std::string("unsupported type: ") + clang_getCString(clang_getTypeKindSpelling(type)));
+        }
+        }
+        return init;
+    }
+
+    void deal_cursor(CXCursor cursor)
     {
         // 处理当前节点
         CXCursorKind kind = clang_getCursorKind(cursor);
@@ -40,9 +79,7 @@ namespace craftlang
             std::vector<CXCursor> children = getChildCursors(cursor);
             current_function.name = "Global";
             current_function.cursor = cursor;
-            startFuncitonContent = std::string("scoreboard objectives remove functionSpace\n") +
-                                   "scoreboard objectives add functionSpace dummy\n" +
-                                   "scoreboard players set " + config.name + " functionSpace 0\n";
+            startFuncitonContent = initVar("functionSpace", CXType_Int, "1");
 
             for (const auto &child : children)
             {
@@ -61,7 +98,7 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / "start.mcfunction" << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / "start.mcfunction").string());
             }
-            outputFile << startFuncitonContent;
+            outputFile << addDollarPrefix(startFuncitonContent);
             outputFile.close();
             break;
         }
@@ -88,7 +125,7 @@ namespace craftlang
                     std::string parm_name_str = clang_getCString(parm_name);
                     Parm parm{clang_getCursorType(child), parm_name_str, localVarCounter++};
                     parms.push_back(parm);
-                    localVarsToInt[parm_name_str] = parm.number;
+                    localVarsToInt[parm_name_str] = Var{parm_name_str, parm.kind, parm.number};
                     clang_disposeString(parm_name);
                 }
             }
@@ -112,23 +149,14 @@ namespace craftlang
 
             current_file = fs::path(std::to_string((functionMap[inside_name].number)));
             current_content = "";
+            current_function.cursor = cursor;
+            current_function.name = std::string(inside_name);
+            current_function.number = functionMap[inside_name].number;
+            current_function.parms = parms;
+            current_function.return_type = clang_getCursorResultType(cursor);
             for (const auto &parm : parms)
             {
-                switch (parm.kind.kind)
-                {
-                case CXType_Int:
-                {
-                    current_content += "$scoreboard objectives remove $(functionSpace)" + std::to_string(parm.number) +
-                                       "\n$scoreboard objectives add $(functionSpace)" + std::to_string(parm.number) + " dummy\n" +
-                                       "$scoreboard players set " + config.name + " $(functionSpace)" + std::to_string(parm.number) + " $(" + std::to_string(parm.number) + ")\n";
-                    break;
-                }
-                default:
-                {
-                    std::cerr << "unsupported type: " << inside_name << std::endl;
-                    throw std::runtime_error(std::string("unsupported type: ") + inside_name);
-                }
-                }
+                current_content += initVar(std::string("$(functionSpace)" + std::to_string(parm.number)), parm.kind.kind, "$(" + std::to_string(parm.number) + ")");
             }
             std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
             for (const auto &child : compoundStmtChildren)
@@ -141,7 +169,7 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / (current_file.string() + ".mcfunction") << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / (current_file.string() + ".mcfunction")).string());
             }
-            outputFile << current_content;
+            outputFile << addDollarPrefix(current_content);
             outputFile.close();
 
             // 恢复函数空间
@@ -151,10 +179,48 @@ namespace craftlang
         }
         case CXCursor_DeclStmt:
         {
+            std::vector<CXCursor> children = getChildCursors(cursor);
+            for (const auto &child : children)
+            {
+                deal_cursor(child);
+            }
+            break;
+        }
+        case CXCursor_VarDecl:
+        {
+            CXType type = clang_getCursorType(cursor);
+            CXString name = clang_getCursorSpelling(cursor);
+            std::string name_str = clang_getCString(name);
+            clang_disposeString(name);
+            if (current_function.name == "Global")
+            {
+                int number = globalVarCounter;
+                globalVarsToInt[name_str] = Var{name_str, type, globalVarCounter++};
+                CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
+                if (!clang_equalCursors(initializer, clang_getNullCursor()))
+                {
+                    deal_cursor(initializer);
+                }
+                startFuncitonContent += initVar(std::string("0") + std::to_string(number), type.kind, "0");
+                startFuncitonContent += std::string("scoreboard players operation ") + config.name + " " + std::string("0") + std::to_string(number) + " = " + config.name + " tmp_0\n";
+            }
+            else
+            {
+                int number = localVarCounter;
+                localVarsToInt[name_str] = Var{name_str, type, localVarCounter++};
+                CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
+                if (!clang_equalCursors(initializer, clang_getNullCursor()))
+                {
+                    deal_cursor(initializer);
+                }
+                current_content += initVar(std::string("$(functionSpace)" + std::to_string(number)), type.kind, "$(functionSpace)tmp_0");
+            }
             break;
         }
         default:
+        {
             break;
+        }
         }
     }
 
