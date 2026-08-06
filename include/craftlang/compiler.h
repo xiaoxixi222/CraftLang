@@ -32,6 +32,17 @@ namespace craftlang
         CXType type;
         int number;
     };
+    enum class ExprResultKind
+    {
+        Var,
+        Int,
+    };
+
+    struct ExprResult
+    {
+        std::string value;
+        ExprResultKind kind;
+    };
 
     extern const std::vector<std::string> intrinsicFunctions;
 
@@ -51,6 +62,7 @@ namespace craftlang
 
     std::string addDollarPrefix(const std::string &text);
     std::string initVar(std::string name, CXTypeKind type, std::string value);
+    ExprResult deal_expr(CXCursor expr);
     void deal_cursor(CXCursor cursor);
     void compile(CXCursor root_cursor);
 

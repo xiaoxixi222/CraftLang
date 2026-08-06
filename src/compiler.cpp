@@ -68,6 +68,26 @@ namespace craftlang
         return init;
     }
 
+    ExprResult deal_expr(CXCursor expr)
+    {
+        // 处理当前节点
+        CXCursorKind kind = clang_getCursorKind(expr);
+        switch (kind)
+        {
+        case CXCursor_IntegerLiteral:
+        {
+            CXEvalResult value = clang_Cursor_Evaluate(expr);
+            std::string value_str = std::to_string(clang_EvalResult_getAsInt(value));
+            clang_EvalResult_dispose(value);
+            return ExprResult{value_str, ExprResultKind::Int};
+        }
+        default:
+        {
+            return ExprResult{"123", ExprResultKind::Var};
+        }
+        }
+    }
+
     void deal_cursor(CXCursor cursor)
     {
         // 处理当前节点
@@ -197,26 +217,91 @@ namespace craftlang
                 int number = globalVarCounter;
                 globalVarsToInt[name_str] = Var{name_str, type, globalVarCounter++};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
+                bool hasInitializer = false;
+                ExprResult exprResult;
                 if (!clang_equalCursors(initializer, clang_getNullCursor()))
                 {
-                    deal_cursor(initializer);
+                    hasInitializer = true;
+                    exprResult = deal_expr(initializer);
                 }
-                startFuncitonContent += initVar(std::string("0_") + std::to_string(number), type.kind, "0");
-                startFuncitonContent += std::string("scoreboard players operation ") + config.name + " " + std::string("0_") + std::to_string(number) + " = " + config.name + " tmp_0\n";
+                if (!hasInitializer)
+                {
+                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, "0");
+                    return;
+                }
+                if (exprResult.kind == ExprResultKind::Var)
+                {
+                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, "0");
+                    startFuncitonContent += std::string("scoreboard players operation ") + config.name + " 0_" + std::to_string(number) + " = " + config.name + " " + exprResult.value + "\n";
+                }
+                else
+                {
+                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, exprResult.value);
+                }
             }
             else
             {
                 int number = localVarCounter;
                 localVarsToInt[name_str] = Var{name_str, type, localVarCounter++};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
+                bool hasInitializer = false;
+                ExprResult exprResult;
                 if (!clang_equalCursors(initializer, clang_getNullCursor()))
                 {
-                    deal_cursor(initializer);
+                    hasInitializer = true;
+                    exprResult = deal_expr(initializer);
                 }
-                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
-                current_content += std::string("scoreboard players operation ") + config.name + " $(functionSpace)_" + std::to_string(number) + " = " + config.name + " $(functionSpace)_tmp_0\n";
+                if (!hasInitializer)
+                {
+                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
+                    return;
+                }
+                if (exprResult.kind == ExprResultKind::Var)
+                {
+                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
+                    current_content += std::string("scoreboard players operation ") + config.name + " $(functionSpace)_" + std::to_string(number) + " = " + config.name + " " + exprResult.value + "\n";
+                }
+                else
+                {
+                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, exprResult.value);
+                }
             }
             break;
+        }
+        case CXCursor_ReturnStmt:
+        {
+            std::vector<CXCursor> children = getChildCursors(cursor);
+            switch (current_function.return_type.kind)
+            {
+            case CXType_Void:
+            {
+                current_content += "return 0\n";
+                break;
+            }
+            case CXType_Int:
+            {
+                if (children.size() == 1)
+                {
+                    ExprResult exprResult = deal_expr(children[0]);
+                    if (exprResult.kind == ExprResultKind::Var)
+                    {
+                        current_content += initVar("return", CXType_Int, "0");
+                        current_content += std::string("scoreboard players operation ") + config.name + " return = " + config.name + " " + exprResult.value + "\n";
+                        current_content += "return 0\n";
+                    }
+                    else
+                    {
+                        current_content += initVar("return", CXType_Int, exprResult.value);
+                        current_content += "return 0\n";
+                    }
+                }
+                break;
+            }
+            default:
+            {
+                break;
+            }
+            }
         }
         default:
         {
