@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 extern craftlang::Config config; // 使用 craftlang 的配置结构体
 namespace craftlang
 {
-    const std::vector<std::string> intrinsicFunctions = {
+    extern const std::vector<std::string> intrinsicFunctions = {
         "print_int",
     };
     std::unordered_map<std::string, Function> functionMap = {};
@@ -156,7 +156,7 @@ namespace craftlang
             current_function.return_type = clang_getCursorResultType(cursor);
             for (const auto &parm : parms)
             {
-                current_content += initVar(std::string("$(functionSpace)" + std::to_string(parm.number)), parm.kind.kind, "$(" + std::to_string(parm.number) + ")");
+                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind, "$(" + std::to_string(parm.number) + ")");
             }
             std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
             for (const auto &child : compoundStmtChildren)
@@ -201,8 +201,8 @@ namespace craftlang
                 {
                     deal_cursor(initializer);
                 }
-                startFuncitonContent += initVar(std::string("0") + std::to_string(number), type.kind, "0");
-                startFuncitonContent += std::string("scoreboard players operation ") + config.name + " " + std::string("0") + std::to_string(number) + " = " + config.name + " tmp_0\n";
+                startFuncitonContent += initVar(std::string("0_") + std::to_string(number), type.kind, "0");
+                startFuncitonContent += std::string("scoreboard players operation ") + config.name + " " + std::string("0_") + std::to_string(number) + " = " + config.name + " tmp_0\n";
             }
             else
             {
@@ -213,7 +213,8 @@ namespace craftlang
                 {
                     deal_cursor(initializer);
                 }
-                current_content += initVar(std::string("$(functionSpace)" + std::to_string(number)), type.kind, "$(functionSpace)tmp_0");
+                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
+                current_content += std::string("scoreboard players operation ") + config.name + " $(functionSpace)_" + std::to_string(number) + " = " + config.name + " $(functionSpace)_tmp_0\n";
             }
             break;
         }
