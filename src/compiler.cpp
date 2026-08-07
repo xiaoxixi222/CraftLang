@@ -29,6 +29,8 @@ namespace craftlang
     std::unordered_map<std::string, Var> globalVarsToInt = {}; // 全局变量的编号
     int localVarCounter = 0, globalVarCounter = 0;
 
+    int tmp_counter = 0;
+
     std::string addDollarPrefix(const std::string &text)
     {
         std::string result;
@@ -47,7 +49,7 @@ namespace craftlang
         return result;
     }
 
-    std::string initVar(std::string name, CXTypeKind type, std::string value)
+    std::string initVar(std::string name, CXTypeKind type)
     {
         std::string init = "";
         switch (type)
@@ -55,8 +57,7 @@ namespace craftlang
         case CXType_Int:
         {
             init = std::string("scoreboard objectives remove ") + name +
-                   "\nscoreboard objectives add " + name + " dummy\n" +
-                   "scoreboard players set " + config.name + " " + name + " " + value + "\n";
+                   "\nscoreboard objectives add " + name + " dummy\n";
             break;
         }
         default:
@@ -66,6 +67,48 @@ namespace craftlang
         }
         }
         return init;
+    }
+
+    std::string setVarToVar(std::string name, std::string value, CXTypeKind type)
+    {
+        std::string set = "";
+        switch (type)
+        {
+        case CXType_Int:
+        {
+            set = std::string("scoreboard players operation ") + config.name + " " + name + " = " + config.name + " " + value + "\n";
+            break;
+        }
+        default:
+        {
+            std::cerr << "unsupported type: " << clang_getCString(clang_getTypeKindSpelling(type)) << std::endl;
+            throw std::runtime_error(std::string("unsupported type: ") + clang_getCString(clang_getTypeKindSpelling(type)));
+        }
+        }
+        return set;
+    }
+    std::string setConstToVar(std::string name, std::string value, CXTypeKind type)
+    {
+        std::string set = "";
+        switch (type)
+        {
+        case CXType_Int:
+        {
+            set = std::string("scoreboard players set ") + config.name + " " + name + " " + value + "\n";
+            break;
+        }
+        default:
+        {
+            std::cerr << "unsupported type: " << clang_getCString(clang_getTypeKindSpelling(type)) << std::endl;
+            throw std::runtime_error(std::string("unsupported type: ") + clang_getCString(clang_getTypeKindSpelling(type)));
+        }
+        }
+        return set;
+    }
+    ExprResult start_deal_expr(CXCursor expr)
+    {
+        tmp_counter = 0;
+        return deal_expr(expr);
     }
 
     ExprResult deal_expr(CXCursor expr)
@@ -79,11 +122,22 @@ namespace craftlang
             CXEvalResult value = clang_Cursor_Evaluate(expr);
             std::string value_str = std::to_string(clang_EvalResult_getAsInt(value));
             clang_EvalResult_dispose(value);
-            return ExprResult{value_str, ExprResultKind::Int};
+            int tmp = tmp_counter++;
+            if (current_function.name == "Global")
+            {
+                startFuncitonContent += initVar(std::string("0_tmp_") + std::to_string(tmp), CXType_Int);
+                startFuncitonContent += setConstToVar(std::string("0_tmp_") + std::to_string(tmp), value_str, CXType_Int);
+            }
+            else
+            {
+                current_content += initVar(std::string("$(functionSpace)_tmp_") + std::to_string(tmp), CXType_Int);
+                current_content += setConstToVar(std::string("$(functionSpace)_tmp_") + std::to_string(tmp), value_str, CXType_Int);
+            }
+            return ExprResult{tmp};
         }
         default:
         {
-            return ExprResult{"123", ExprResultKind::Var};
+            return ExprResult{tmp_counter++};
         }
         }
     }
@@ -99,7 +153,8 @@ namespace craftlang
             std::vector<CXCursor> children = getChildCursors(cursor);
             current_function.name = "Global";
             current_function.cursor = cursor;
-            startFuncitonContent = initVar("functionSpace", CXType_Int, "1");
+            startFuncitonContent = initVar("functionSpace", CXType_Int);
+            startFuncitonContent += setConstToVar("functionSpace", "1", CXType_Int);
 
             for (const auto &child : children)
             {
@@ -176,7 +231,8 @@ namespace craftlang
             current_function.return_type = clang_getCursorResultType(cursor);
             for (const auto &parm : parms)
             {
-                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind, "$(" + std::to_string(parm.number) + ")");
+                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind);
+                current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
             }
             std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
             for (const auto &child : compoundStmtChildren)
@@ -222,22 +278,16 @@ namespace craftlang
                 if (!clang_equalCursors(initializer, clang_getNullCursor()))
                 {
                     hasInitializer = true;
-                    exprResult = deal_expr(initializer);
+                    exprResult = start_deal_expr(initializer);
                 }
                 if (!hasInitializer)
                 {
-                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, "0");
+                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
                     return;
                 }
-                if (exprResult.kind == ExprResultKind::Var)
-                {
-                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, "0");
-                    startFuncitonContent += std::string("scoreboard players operation ") + config.name + " 0_" + std::to_string(number) + " = " + config.name + " " + exprResult.value + "\n";
-                }
-                else
-                {
-                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind, exprResult.value);
-                }
+
+                startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
+                startFuncitonContent += setVarToVar(std::string("0_" + std::to_string(number)), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
             }
             else
             {
@@ -249,22 +299,15 @@ namespace craftlang
                 if (!clang_equalCursors(initializer, clang_getNullCursor()))
                 {
                     hasInitializer = true;
-                    exprResult = deal_expr(initializer);
+                    exprResult = start_deal_expr(initializer);
                 }
                 if (!hasInitializer)
                 {
-                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
+                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind);
                     return;
                 }
-                if (exprResult.kind == ExprResultKind::Var)
-                {
-                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, "0");
-                    current_content += std::string("scoreboard players operation ") + config.name + " $(functionSpace)_" + std::to_string(number) + " = " + config.name + " " + exprResult.value + "\n";
-                }
-                else
-                {
-                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind, exprResult.value);
-                }
+                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(number)), type.kind);
+                current_content += setVarToVar(std::string("$(functionSpace)_" + std::to_string(number)), std::string("$(functionSpace)_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
             }
             break;
         }
@@ -282,18 +325,11 @@ namespace craftlang
             {
                 if (children.size() == 1)
                 {
-                    ExprResult exprResult = deal_expr(children[0]);
-                    if (exprResult.kind == ExprResultKind::Var)
-                    {
-                        current_content += initVar("return", CXType_Int, "0");
-                        current_content += std::string("scoreboard players operation ") + config.name + " return = " + config.name + " " + exprResult.value + "\n";
-                        current_content += "return 0\n";
-                    }
-                    else
-                    {
-                        current_content += initVar("return", CXType_Int, exprResult.value);
-                        current_content += "return 0\n";
-                    }
+                    ExprResult exprResult = start_deal_expr(children[0]);
+
+                    current_content += initVar("return", CXType_Int);
+                    current_content += setVarToVar("return", std::string("$(functionSpace)_tmp_") + std::to_string(exprResult.tmp_number), CXType_Int);
+                    current_content += "return 0\n";
                 }
                 break;
             }
