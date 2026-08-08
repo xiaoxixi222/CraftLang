@@ -139,6 +139,43 @@ namespace craftlang
             }
             return ExprResult{tmp};
         }
+        case CXCursor_UnexposedExpr:
+        {
+            auto children = getChildCursors(expr);
+            if (children.size() == 1)
+                return deal_expr(children[0]);
+            else
+            {
+                std::cerr << "unexpected expr: expression has more than one child\n";
+                throw std::runtime_error(std::string("unexpected expr: expression has more than one child"));
+            }
+        }
+        case CXCursor_DeclRefExpr:
+        {
+            CXString name = clang_getCursorSpelling(expr);
+            std::string name_str = clang_getCString(name);
+            clang_disposeString(name);
+            auto itl = localVarsToInt.find(name_str),
+                 itg = globalVarsToInt.find(name_str);
+            if (itl != localVarsToInt.end())
+            {
+                Var var = itl->second;
+                int tmp = tmp_counter++;
+
+                current_content += initVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), var.type.kind);
+                current_content += setVarToVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), std::string("$(functionSpace)_") + std::to_string(var.number), var.type.kind);
+                return ExprResult{tmp};
+            }
+            else if (itg != globalVarsToInt.end())
+            {
+                Var var = itg->second;
+                int tmp = tmp_counter++;
+
+                startFuncitonContent += initVar(std::string("0_tmp_" + std::to_string(tmp)), var.type.kind);
+                startFuncitonContent += setVarToVar(std::string("0_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
+                return ExprResult{tmp};
+            }
+        }
         default:
         {
             return ExprResult{tmp_counter++};
