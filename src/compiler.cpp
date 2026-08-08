@@ -170,9 +170,16 @@ namespace craftlang
             {
                 Var var = itg->second;
                 int tmp = tmp_counter++;
-
-                startFuncitonContent += initVar(std::string("0_tmp_" + std::to_string(tmp)), var.type.kind);
-                startFuncitonContent += setVarToVar(std::string("0_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
+                if (current_function.name == "Global")
+                {
+                    startFuncitonContent += initVar(std::string("0_tmp_" + std::to_string(tmp)), var.type.kind);
+                    startFuncitonContent += setVarToVar(std::string("0_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
+                }
+                else
+                {
+                    current_content += initVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), var.type.kind);
+                    current_content += setVarToVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
+                }
                 return ExprResult{tmp};
             }
         }
