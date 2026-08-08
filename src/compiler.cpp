@@ -30,6 +30,10 @@ namespace craftlang
     int localVarCounter = 0, globalVarCounter = 0;
 
     int tmp_counter = 0;
+    extern const std::vector<CXCursorKind> exprStatementKinds = {
+        CXCursor_CallExpr,       // print_int(c); add(a,b);
+        CXCursor_BinaryOperator, // d = c;
+    };
 
     std::string addDollarPrefix(const std::string &text)
     {
@@ -335,6 +339,10 @@ namespace craftlang
             }
             default:
             {
+                if (std::find(exprStatementKinds.begin(), exprStatementKinds.end(), kind) != exprStatementKinds.end())
+                {
+                    start_deal_expr(cursor); // 表达式语句：求值副作用，丢弃结果
+                }
                 break;
             }
             }

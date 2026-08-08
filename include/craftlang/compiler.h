@@ -55,6 +55,7 @@ namespace craftlang
     extern int globalVarCounter;
 
     extern int tmp_counter;
+    extern const std::vector<CXCursorKind> exprStatementKinds;
 
     std::string addDollarPrefix(const std::string &text);
     std::string initVar(std::string name, CXTypeKind type);
