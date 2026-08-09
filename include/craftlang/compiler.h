@@ -29,6 +29,7 @@ namespace craftlang
     struct Var
     {
         std::string name;
+        std::string objective;
         CXType type;
         int number;
     };
@@ -44,7 +45,7 @@ namespace craftlang
     extern int functionCounter;
 
     extern std::string current_content;
-    extern std::string startFuncitonContent;
+    extern std::string startFunctionContent;
     extern std::filesystem::path current_file;
     extern std::filesystem::path function_path;
     extern Function current_function;

@@ -21,7 +21,7 @@ namespace craftlang
     std::unordered_map<std::string, Function> functionMap = {};
     int functionCounter = 0;
 
-    std::string current_content = "", startFuncitonContent = "";
+    std::string current_content = "", startFunctionContent = "";
     fs::path current_file = "";
     fs::path function_path = "";
     Function current_function;
@@ -34,6 +34,19 @@ namespace craftlang
         CXCursor_CallExpr,       // print_int(c); add(a,b);
         CXCursor_BinaryOperator, // d = c;
     };
+
+    void replaceAll(std::string &str, const std::string &from, const std::string &to)
+    {
+        if (from.empty())
+            return; // 防止死循环
+
+        size_t start_pos = 0;
+        while ((start_pos = str.find(from, start_pos)) != std::string::npos)
+        {
+            str.replace(start_pos, from.length(), to);
+            start_pos += to.length(); // 移动到替换后的末尾，继续往后找
+        }
+    }
 
     std::string addDollarPrefix(const std::string &text)
     {
@@ -109,6 +122,35 @@ namespace craftlang
         }
         return set;
     }
+    const Var &find_var(std::string name)
+    {
+        auto itl = localVarsToInt.find(name),
+             itg = globalVarsToInt.find(name);
+        if (itl != localVarsToInt.end())
+        {
+            return itl->second;
+        }
+        if (itg != globalVarsToInt.end())
+        {
+            return itg->second;
+        }
+
+        std::cerr << "variable not found: " << name << std::endl;
+        throw std::runtime_error(std::string("variable not found: ") + name);
+    }
+    void addCommand(std::string cmd)
+    {
+        if (current_function.name == "Global")
+        {
+            replaceAll(cmd, "?(space)", "0");
+            startFunctionContent += cmd;
+        }
+        else
+        {
+            replaceAll(cmd, "?(space)", "$(functionSpace)");
+            current_content += cmd;
+        }
+    }
     ExprResult start_deal_expr(CXCursor expr)
     {
         tmp_counter = 0;
@@ -127,16 +169,8 @@ namespace craftlang
             std::string value_str = std::to_string(clang_EvalResult_getAsInt(value));
             clang_EvalResult_dispose(value);
             int tmp = tmp_counter++;
-            if (current_function.name == "Global")
-            {
-                startFuncitonContent += initVar(std::string("0_tmp_") + std::to_string(tmp), CXType_Int);
-                startFuncitonContent += setConstToVar(std::string("0_tmp_") + std::to_string(tmp), value_str, CXType_Int);
-            }
-            else
-            {
-                current_content += initVar(std::string("$(functionSpace)_tmp_") + std::to_string(tmp), CXType_Int);
-                current_content += setConstToVar(std::string("$(functionSpace)_tmp_") + std::to_string(tmp), value_str, CXType_Int);
-            }
+            addCommand(initVar("?(space)_tmp_" + std::to_string(tmp), CXType_Int) +
+                       setConstToVar(std::string("?(space)_tmp_") + std::to_string(tmp), value_str, CXType_Int));
             return ExprResult{tmp};
         }
         case CXCursor_UnexposedExpr:
@@ -155,33 +189,58 @@ namespace craftlang
             CXString name = clang_getCursorSpelling(expr);
             std::string name_str = clang_getCString(name);
             clang_disposeString(name);
-            auto itl = localVarsToInt.find(name_str),
-                 itg = globalVarsToInt.find(name_str);
-            if (itl != localVarsToInt.end())
+            int tmp = tmp_counter++;
+            Var var = find_var(name_str);
+            addCommand(initVar(std::string("?(space)_tmp_") + std::to_string(tmp), var.type.kind) +
+                       setVarToVar(std::string("?(space)_tmp_") + std::to_string(tmp), var.objective, var.type.kind));
+            return ExprResult{tmp};
+        }
+        case CXCursor_BinaryOperator:
+        {
+            auto children = getChildCursors(expr);
+            if (children.size() != 2)
             {
-                Var var = itl->second;
-                int tmp = tmp_counter++;
-
-                current_content += initVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), var.type.kind);
-                current_content += setVarToVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), std::string("$(functionSpace)_") + std::to_string(var.number), var.type.kind);
-                return ExprResult{tmp};
+                std::cerr << "unexpected expr: binary operator has more than two children\n";
+                throw std::runtime_error(std::string("unexpected expr: binary operator has more than two children"));
             }
-            else if (itg != globalVarsToInt.end())
+            ExprResult left = deal_expr(children[0]);
+            ExprResult right = deal_expr(children[1]);
+            tmp_counter--;
+            int tmp = left.tmp_number;
+            CXBinaryOperatorKind kind = clang_getCursorBinaryOperatorKind(expr);
+            switch (kind)
             {
-                Var var = itg->second;
-                int tmp = tmp_counter++;
-                if (current_function.name == "Global")
-                {
-                    startFuncitonContent += initVar(std::string("0_tmp_" + std::to_string(tmp)), var.type.kind);
-                    startFuncitonContent += setVarToVar(std::string("0_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
-                }
-                else
-                {
-                    current_content += initVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), var.type.kind);
-                    current_content += setVarToVar(std::string("$(functionSpace)_tmp_" + std::to_string(tmp)), std::string("0_") + std::to_string(var.number), var.type.kind);
-                }
-                return ExprResult{tmp};
+            case CXBinaryOperator_Add:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " += " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                break;
             }
+            case CXBinaryOperator_Mul:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " *= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                break;
+            }
+            case CXBinaryOperator_Sub:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " -= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                break;
+            }
+            case CXBinaryOperator_Div:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " /= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                break;
+            }
+            case CXBinaryOperator_Rem:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " %= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                break;
+            }
+            default:
+            {
+                break;
+            }
+            }
+            return ExprResult{tmp};
         }
         default:
         {
@@ -201,8 +260,8 @@ namespace craftlang
             std::vector<CXCursor> children = getChildCursors(cursor);
             current_function.name = "Global";
             current_function.cursor = cursor;
-            startFuncitonContent = initVar("functionSpace", CXType_Int);
-            startFuncitonContent += setConstToVar("functionSpace", "1", CXType_Int);
+            startFunctionContent = initVar("functionSpace", CXType_Int);
+            startFunctionContent += setConstToVar("functionSpace", "1", CXType_Int);
 
             for (const auto &child : children)
             {
@@ -210,7 +269,7 @@ namespace craftlang
             }
             if (functionMap.find("main") != functionMap.end())
             {
-                startFuncitonContent +=
+                startFunctionContent +=
                     std::string("execute store result storage ") + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
                     "function " + config.name + ":" + std::to_string(functionMap["main"].number) + " with storage " +
                     config.name;
@@ -221,7 +280,7 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / "start.mcfunction" << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / "start.mcfunction").string());
             }
-            outputFile << addDollarPrefix(startFuncitonContent);
+            outputFile << addDollarPrefix(startFunctionContent);
             outputFile.close();
             break;
         }
@@ -248,7 +307,7 @@ namespace craftlang
                     std::string parm_name_str = clang_getCString(parm_name);
                     Parm parm{clang_getCursorType(child), parm_name_str, localVarCounter++};
                     parms.push_back(parm);
-                    localVarsToInt[parm_name_str] = Var{parm_name_str, parm.kind, parm.number};
+                    localVarsToInt[parm_name_str] = Var{parm_name_str, std::string("$(functionSpace)_") + std::to_string(parm.number), parm.kind, parm.number};
                     clang_disposeString(parm_name);
                 }
             }
@@ -319,7 +378,7 @@ namespace craftlang
             if (current_function.name == "Global")
             {
                 int number = globalVarCounter;
-                globalVarsToInt[name_str] = Var{name_str, type, globalVarCounter++};
+                globalVarsToInt[name_str] = Var{name_str, std::string("0_") + std::to_string(number), type, globalVarCounter++};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
@@ -330,17 +389,17 @@ namespace craftlang
                 }
                 if (!hasInitializer)
                 {
-                    startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
+                    startFunctionContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
                     return;
                 }
 
-                startFuncitonContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
-                startFuncitonContent += setVarToVar(std::string("0_" + std::to_string(number)), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
+                startFunctionContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
+                startFunctionContent += setVarToVar(std::string("0_" + std::to_string(number)), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
             }
             else
             {
-                int number = localVarCounter;
-                localVarsToInt[name_str] = Var{name_str, type, localVarCounter++};
+                int number = localVarCounter++;
+                localVarsToInt[name_str] = Var{name_str, std::string("$(functionSpace)_") + std::to_string(number), type, number};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
