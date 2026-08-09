@@ -295,6 +295,42 @@ namespace craftlang
             }
             return ExprResult{tmp};
         }
+        case CXCursor_CallExpr:
+        {
+            CXCursor function = clang_getCursorReferenced(expr);
+            CXString function_name = clang_getCursorSpelling(function);
+            std::string function_name_str = clang_getCString(function_name);
+            clang_disposeString(function_name);
+            Function functionVar = functionMap[function_name_str];
+            int num = clang_Cursor_getNumArguments(expr);
+            std::vector<ExprResult> args;
+            for (int i = 0; i < num; i++)
+            {
+                ExprResult arg = deal_expr(clang_Cursor_getArgument(expr, i));
+                addCommand(std::string("execute store result storage ") + config.name + " " + std::to_string(i) + " int 1 run scoreboard players get " + config.name + " ?(space)_tmp_" + std::to_string(arg.tmp_number) + "\n");
+            }
+            int tmp = tmp_counter - num + 1;
+
+            if (functionVar.return_type.kind != CXType_Void)
+            {
+                tmp_counter = tmp + 1;
+                addCommand(std::string("scoreboard players add ") + config.name + " functionSpace 1\n" +
+                           "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
+                           "function " + config.name + ":" + std::to_string(functionVar.number) + " with storage " + config.name +
+                           "\nscoreboard players remove " + config.name + " functionSpace 1\n");
+                addCommand(initVar(std::string("?(space)_tmp_") + std::to_string(tmp), functionVar.return_type.kind) +
+                           setVarToVar(std::string("?(space)_tmp_") + std::to_string(tmp), std::string("return"), functionVar.return_type.kind));
+            }
+            else
+            {
+                tmp_counter = tmp;
+                addCommand(std::string("scoreboard players add ") + config.name + " functionSpace 1\n" +
+                           "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
+                           "function " + config.name + ":" + std::to_string(functionVar.number) + " with storage " + config.name +
+                           "\nscoreboard players remove " + config.name + " functionSpace 1\n");
+            }
+            return ExprResult{tmp};
+        }
         default:
         {
             return ExprResult{tmp_counter++};
@@ -377,9 +413,9 @@ namespace craftlang
                 functionCounter++;
             }
             clang_disposeString(name);
-            if (!hasCompoundStmt)
+            if (!hasCompoundStmt && !isIntrinsic)
             {
-                return; // 如果没有函数体，直接返回
+                return; // 如果没有函数体且不是内建函数，直接返回
             }
 
             current_file = fs::path(std::to_string((functionMap[inside_name].number)));
@@ -389,15 +425,31 @@ namespace craftlang
             current_function.number = functionMap[inside_name].number;
             current_function.parms = parms;
             current_function.return_type = clang_getCursorResultType(cursor);
-            for (const auto &parm : parms)
+            if (hasCompoundStmt)
             {
-                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind);
-                current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
+                for (const auto &parm : parms)
+                {
+                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind);
+                    current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
+                }
+
+                std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
+                for (const auto &child : compoundStmtChildren)
+                {
+                    deal_cursor(child);
+                }
             }
-            std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
-            for (const auto &child : compoundStmtChildren)
+            else
             {
-                deal_cursor(child);
+                if (inside_name == "print_int")
+                {
+                    current_content += "say $(0)";
+                }
+                else
+                {
+                    std::cerr << "function " << inside_name << " is not supported" << std::endl;
+                    throw std::runtime_error(std::string("function ") + inside_name + " has been defined");
+                }
             }
             std::ofstream outputFile(function_path / (current_file.string() + ".mcfunction"), std::ios::out | std::ios::trunc);
             if (!outputFile)
