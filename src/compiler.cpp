@@ -15,8 +15,11 @@ namespace fs = std::filesystem;
 extern craftlang::Config config; // 使用 craftlang 的配置结构体
 namespace craftlang
 {
-    extern const std::vector<std::string> intrinsicFunctions = {
+    const std::vector<std::string> intrinsicFunctions = {
         "print_int",
+    };
+    const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue = {
+        CXBinaryOperator_Assign,
     };
     std::unordered_map<std::string, Function> functionMap = {};
     int functionCounter = 0;
@@ -30,7 +33,7 @@ namespace craftlang
     int localVarCounter = 0, globalVarCounter = 0;
 
     int tmp_counter = 0;
-    extern const std::vector<CXCursorKind> exprStatementKinds = {
+    const std::vector<CXCursorKind> exprStatementKinds = {
         CXCursor_CallExpr,       // print_int(c); add(a,b);
         CXCursor_BinaryOperator, // d = c;
     };
@@ -151,6 +154,37 @@ namespace craftlang
             current_content += cmd;
         }
     }
+    LValue deal_lvalue(CXCursor lvalue)
+    {
+        CXCursorKind kind = clang_getCursorKind(lvalue);
+        switch (kind)
+        {
+        case CXCursor_DeclRefExpr:
+        {
+            CXString name = clang_getCursorSpelling(lvalue);
+            std::string name_str = clang_getCString(name);
+            clang_disposeString(name);
+            Var var = find_var(name_str);
+            return LValue{var.objective};
+        }
+        case CXCursor_UnexposedExpr:
+        {
+            auto children = getChildCursors(lvalue);
+            if (children.size() == 1)
+                return deal_lvalue(children[0]);
+            else
+            {
+                std::cerr << "unexpected expr: expression has more than one child\n";
+                throw std::runtime_error(std::string("unexpected expr: expression has more than one child"));
+            }
+        }
+        default:
+        {
+            break;
+        }
+        }
+        return LValue{}; // 默认返回空值
+    }
     ExprResult start_deal_expr(CXCursor expr)
     {
         tmp_counter = 0;
@@ -203,11 +237,30 @@ namespace craftlang
                 std::cerr << "unexpected expr: binary operator has more than two children\n";
                 throw std::runtime_error(std::string("unexpected expr: binary operator has more than two children"));
             }
+            CXBinaryOperatorKind kind = clang_getCursorBinaryOperatorKind(expr);
+            if (std::find(binaryOperatorNeedLValue.begin(),
+                          binaryOperatorNeedLValue.end(), kind) != binaryOperatorNeedLValue.end())
+            {
+                LValue left = deal_lvalue(children[0]);
+                ExprResult right = deal_expr(children[1]);
+                int tmp = right.tmp_number;
+                switch (kind)
+                {
+                case CXBinaryOperator_Assign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " = " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                }
+                default:
+                {
+                    break;
+                }
+                }
+                return ExprResult{tmp};
+            }
             ExprResult left = deal_expr(children[0]);
             ExprResult right = deal_expr(children[1]);
             tmp_counter--;
             int tmp = left.tmp_number;
-            CXBinaryOperatorKind kind = clang_getCursorBinaryOperatorKind(expr);
             switch (kind)
             {
             case CXBinaryOperator_Add:
@@ -442,16 +495,17 @@ namespace craftlang
             }
             default:
             {
-                if (std::find(exprStatementKinds.begin(), exprStatementKinds.end(), kind) != exprStatementKinds.end())
-                {
-                    start_deal_expr(cursor); // 表达式语句：求值副作用，丢弃结果
-                }
+
                 break;
             }
             }
         }
         default:
         {
+            if (std::find(exprStatementKinds.begin(), exprStatementKinds.end(), kind) != exprStatementKinds.end())
+            {
+                start_deal_expr(cursor); // 表达式语句：求值副作用，丢弃结果
+            }
             break;
         }
         }

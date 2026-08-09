@@ -39,6 +39,11 @@ namespace craftlang
         int tmp_number;
     };
 
+    struct LValue{
+        std::string objective;
+    };
+    extern const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue;
+
     extern const std::vector<std::string> intrinsicFunctions;
 
     extern std::unordered_map<std::string, Function> functionMap;
@@ -64,6 +69,7 @@ namespace craftlang
     std::string setConstToVar(std::string name, std::string value, CXTypeKind type);
     ExprResult start_deal_expr(CXCursor expr);
     ExprResult deal_expr(CXCursor expr);
+    LValue deal_lvalue(CXCursor lvalue);
     void deal_cursor(CXCursor cursor);
     void compile(CXCursor root_cursor);
 
