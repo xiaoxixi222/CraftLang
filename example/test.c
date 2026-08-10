@@ -1,19 +1,52 @@
 #include <mcstd.h>
 
-int add(int a, int b);
+int g1 = 10;
+int g2 = 100;
 
-int d = 0;
+int add(int a, int b)
+{
+    return a + b;
+}
+
+int sub(int a, int b)
+{
+    return a - b;
+}
+
+int mul(int a, int b)
+{
+    return a * b;
+}
+
+int divi(int a, int b)
+{
+    return a / b;
+}
+
+int mod(int a, int b)
+{
+    return a % b;
+}
+
 int main()
 {
     int a = 10, b = 20;
     int c = add(a, b);
-    int e = a, f = d;
-    d = c;
+    int d = sub(b, a);
+    int e = mul(a, 2);
+    int f = divi(b, a);
+    int m = mod(b, 3);
+    int p = (a + b) * 2;
+    int n = -a;
+    c = c + 1;
+    g1 = g1 + c;
     print_int(c);
+    print_int(d);
+    print_int(e);
+    print_int(f);
+    print_int(m);
+    print_int(p);
+    print_int(n);
+    print_int(g1);
     return 0;
-}
-
-int add(int a, int b)
-{
-    return a + b * b;
 }

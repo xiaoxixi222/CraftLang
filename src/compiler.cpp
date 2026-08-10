@@ -36,6 +36,7 @@ namespace craftlang
     const std::vector<CXCursorKind> exprStatementKinds = {
         CXCursor_CallExpr,       // print_int(c); add(a,b);
         CXCursor_BinaryOperator, // d = c;
+        CXCursor_ParenExpr,
     };
 
     void replaceAll(std::string &str, const std::string &from, const std::string &to)
@@ -167,6 +168,7 @@ namespace craftlang
             Var var = find_var(name_str);
             return LValue{var.objective};
         }
+        case CXCursor_ParenExpr:
         case CXCursor_UnexposedExpr:
         {
             auto children = getChildCursors(lvalue);
@@ -207,6 +209,7 @@ namespace craftlang
                        setConstToVar(std::string("?(space)_tmp_") + std::to_string(tmp), value_str, CXType_Int));
             return ExprResult{tmp};
         }
+        case CXCursor_ParenExpr:
         case CXCursor_UnexposedExpr:
         {
             auto children = getChildCursors(expr);
@@ -295,6 +298,26 @@ namespace craftlang
             }
             return ExprResult{tmp};
         }
+        case CXCursor_UnaryOperator:
+        {
+            switch (clang_getCursorUnaryOperatorKind(expr))
+            {
+            case CXUnaryOperator_Plus: // +x：恒等，直接透传
+                return deal_expr(getChildCursors(expr)[0]);
+            case CXUnaryOperator_Minus: // -x：求值后取负
+            {
+                ExprResult operand = deal_expr(getChildCursors(expr)[0]);
+                int tmp = operand.tmp_number;
+                // MC 没有一元取负，用 0 - x
+                addCommand(initVar("const-1", CXType_Int) + setConstToVar(std::string("const-1"), "-1", CXType_Int) +
+                           "scoreboard players operation " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " *= " + config.name + " const-1\n");
+                return ExprResult{tmp};
+            }
+            default:
+                std::cerr << "unsupported unary operator\n";
+                throw std::runtime_error("unsupported unary operator"); // ++/--/&/*/! 等：响亮失败，别静默
+            }
+        }
         case CXCursor_CallExpr:
         {
             CXCursor function = clang_getCursorReferenced(expr);
@@ -333,7 +356,8 @@ namespace craftlang
         }
         default:
         {
-            return ExprResult{tmp_counter++};
+            std::cerr << "unsupported expr: " << clang_getCString(clang_getCursorKindSpelling(clang_getCursorKind(expr))) << std::endl;
+            throw std::runtime_error(std::string("unsupported expr: ") + clang_getCString(clang_getCursorKindSpelling(clang_getCursorKind(expr))));
         }
         }
     }
@@ -551,6 +575,7 @@ namespace craftlang
                 break;
             }
             }
+            break;
         }
         default:
         {
@@ -558,7 +583,11 @@ namespace craftlang
             {
                 start_deal_expr(cursor); // 表达式语句：求值副作用，丢弃结果
             }
-            break;
+            else
+            {
+                std::cerr << "unsupported cursor: " << clang_getCString(clang_getCursorKindSpelling(clang_getCursorKind(cursor))) << std::endl;
+                throw std::runtime_error(std::string("unsupported cursor: ") + clang_getCString(clang_getCursorKindSpelling(clang_getCursorKind(cursor))));
+            }
         }
         }
     }
