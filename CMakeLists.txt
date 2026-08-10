@@ -6,14 +6,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ── Source files ────────────────────────────────────────────────────
+# ── Compiler source files ─────────────────────────────────────────
 file(GLOB_RECURSE SOURCES
-    "${CMAKE_SOURCE_DIR}/src/*.cpp"
-    "${CMAKE_SOURCE_DIR}/src/*.c"
+    "${CMAKE_SOURCE_DIR}/src/compiler/*.cpp"
+    "${CMAKE_SOURCE_DIR}/src/compiler/*.c"
 )
 
 # ── Executable target (must be defined before target_* calls) ──────
 add_executable(craftlang ${SOURCES})
+
+# ── Linker executable ─────────────────────────────────────────────
+file(GLOB_RECURSE LINKER_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/linker/*.cpp"
+    "${CMAKE_SOURCE_DIR}/src/linker/*.c"
+)
+add_executable(craftlinker ${LINKER_SOURCES})
+
+target_include_directories(craftlinker PRIVATE
+    "${CMAKE_SOURCE_DIR}/include"
+    "${CMAKE_SOURCE_DIR}/third_party/json"
+)
 
 # ── Include directories ────────────────────────────────────────────
 target_include_directories(craftlang PRIVATE
