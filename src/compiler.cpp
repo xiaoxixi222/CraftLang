@@ -1,6 +1,7 @@
 #include <craftlang/compiler.h>
 #include <craftlang/lang.h>
 #include <craftlang/config.h>
+#include <json.hpp> // nlohmann/json 头文件
 
 #include <algorithm>
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 
+using json = nlohmann::json;
 namespace fs = std::filesystem;
 extern craftlang::Config config; // 使用 craftlang 的配置结构体
 namespace craftlang
@@ -65,6 +67,22 @@ namespace craftlang
             first = false;
             if (line.find("$") != std::string::npos)
                 result += "$";
+            result += line;
+        }
+        return result;
+    }
+    std::string addCommentPrefix(const std::string &text)
+    {
+        std::string result;
+        std::istringstream iss(text); // 已经 include 了 <sstream>
+        std::string line;
+        bool first = true;
+        while (std::getline(iss, line))
+        {
+            if (!first)
+                result += "\n";
+            first = false;
+            result += "# ";
             result += line;
         }
         return result;
@@ -393,6 +411,26 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / "start.mcfunction" << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / "start.mcfunction").string());
             }
+            json symbolTable;
+            symbolTable["Global"] = json::array();
+            symbolTable["function"] = json::array();
+            for (const auto &pair : globalVarsToInt)
+            {
+                Var var = pair.second;
+                CXString  typeName = clang_getTypeKindSpelling(var.type.kind);
+                std::string typeName_str = clang_getCString(typeName);
+                clang_disposeString(typeName);
+                symbolTable["Global"].push_back(json{var.name, var.objective, typeName_str});
+            }
+            for (const auto &pair : functionMap)
+            {
+                Function function = pair.second;
+                CXString  typeName = clang_getTypeKindSpelling(function.return_type.kind);
+                std::string typeName_str = clang_getCString(typeName);
+                clang_disposeString(typeName);
+                symbolTable["function"].push_back(json{function.name, function.number, typeName_str, function.parms.size()});
+            }
+            outputFile << addCommentPrefix(symbolTable.dump(4)) << "\n";
             outputFile << addDollarPrefix(startFunctionContent);
             outputFile.close();
             break;
@@ -481,6 +519,16 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / (current_file.string() + ".mcfunction") << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / (current_file.string() + ".mcfunction")).string());
             }
+            json symbolTable = json::array();
+            for (const auto &pair : localVarsToInt)
+            {
+                Var var = pair.second;
+                CXString  typeName = clang_getTypeKindSpelling(var.type.kind);
+                std::string typeName_str = clang_getCString(typeName);
+                clang_disposeString(typeName);
+                symbolTable.push_back(json{var.name, var.objective, typeName_str});
+            }
+            outputFile << addCommentPrefix(symbolTable.dump(4)) << "\n";
             outputFile << addDollarPrefix(current_content);
             outputFile.close();
 
