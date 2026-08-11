@@ -4,6 +4,7 @@
     "description": "test",
     "linkFile": [
         "build\\test_symbols.json",
+        "build\\test2_symbols.json",
         "mcstd\\mcstd_symbols.json"
     ],
     "outputPath": "build\\craftlang"

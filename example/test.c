@@ -48,5 +48,6 @@ int main()
     print_int(p);
     print_int(n);
     print_int(g1);
+    print_int(g2);
     return 0;
 }
