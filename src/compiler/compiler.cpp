@@ -512,6 +512,7 @@ namespace craftlang
             {
                 int number = globalVarCounter;
                 globalVarsToInt[name_str] = Var{name_str, std::string("0_.g.") + std::to_string(number) + ".g.", type, globalVarCounter++, storageClass == CX_SC_Extern};
+                if (storageClass == CX_SC_Extern) return;
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
@@ -525,7 +526,6 @@ namespace craftlang
                     startFunctionContent += initVar(std::string("0_.g." + std::to_string(number) + ".g."), type.kind);
                     return;
                 }
-
                 startFunctionContent += initVar(std::string("0_.g." + std::to_string(number) + ".g."), type.kind);
                 startFunctionContent += setVarToVar(std::string("0_.g." + std::to_string(number) + ".g."), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
             }

@@ -6,6 +6,6 @@
 int main(int argc, char *argv[])
 {
     std::cout << "craftlinker: CraftLang linker (under construction)\n";
-    std::cout << "Usage: craftlinker <output-dir> <input1> [input2 ...]\n";
+    std::cout << "Usage: craftlinker <setting.json>\n";
     return 0;
 }

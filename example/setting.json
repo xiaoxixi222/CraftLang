@@ -1,5 +1,10 @@
 {
     "name": "craftlang",
     "pack_format": 101,
-    "description": "test"
+    "description": "test",
+    "linkFile": [
+        "build\\test_symbols.json",
+        "mcstd\\mcstd_symbols.json"
+    ],
+    "outputPath": "build\\craftlang"
 }
