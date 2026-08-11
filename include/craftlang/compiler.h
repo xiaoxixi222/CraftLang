@@ -2,6 +2,7 @@
 #define CRAFTLANG_COMPILER_H
 
 #include <clang-c/Index.h>
+#include <json.hpp>
 
 #include <filesystem>
 #include <string>
@@ -24,6 +25,7 @@ namespace craftlang
         std::vector<Parm> parms;
         int number;
         CXCursor cursor;
+        bool isExtern;
     };
 
     struct Var
@@ -32,6 +34,7 @@ namespace craftlang
         std::string objective;
         CXType type;
         int number;
+        bool isExtern;
     };
 
     struct ExprResult
@@ -43,8 +46,6 @@ namespace craftlang
         std::string objective;
     };
     extern const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue;
-
-    extern const std::vector<std::string> intrinsicFunctions;
 
     extern std::unordered_map<std::string, Function> functionMap;
     extern int functionCounter;
@@ -60,6 +61,7 @@ namespace craftlang
     extern int localVarCounter;
     extern int globalVarCounter;
 
+    extern nlohmann::json symbols;
     extern int tmp_counter;
     extern const std::vector<CXCursorKind> exprStatementKinds;
 

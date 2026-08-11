@@ -8,41 +8,38 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <filesystem>
 
 #include <clang-c/Index.h> // libclang 头文件
 #include <json.hpp>        // nlohmann/json 头文件
 
 using json = nlohmann::json;
+namespace fs = std::filesystem; // 使用 std::filesystem 库
 
 craftlang::Config config; // 使用 craftlang 的配置结构体
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3)
+    if (argc < 2)
     {
-        std::cerr << "Usage: craftlang <source-file.c> <setting.json>\n";
+        std::cerr << "Usage: craftlang <source-file.c>\n";
         return 1;
     }
 
     std::string filePath = argv[1];
-    std::string settingFilePath = argv[2];
-    std::cout << "Input file: " << filePath << "\n";
-    std::cout << "Setting file: " << settingFilePath << "\n";
-
-    std::ifstream file(settingFilePath);
-    if (!file.is_open()) {
-        std::cerr << "failed to open " << settingFilePath << std::endl;
-        return 1;
+    fs::path filePath2 = argv[1];
+    if (argc == 3)
+    {
+        config.output_path = argv[2];
     }
+    else
+    {
+        config.output_path = fs::current_path() / "build"; // 默认输出路径为当前工作目录
+    }
+    std::cout << "Input file: " << filePath << "\n";
 
-    // 把整个文件内容读到字符串
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string content = buffer.str();
-    json config_json = json::parse(content);
-    config.name = config_json["name"].get<std::string>();
-    config.pack_format = config_json["pack_format"].get<int>();
-    config.description = config_json["description"].get<std::string>();
+    config.name = "..name..";
+    config.file_name = filePath2.stem().string();
 
     // libclang 解析与 AST 遍历
     // 1. 创建索引
@@ -90,7 +87,8 @@ int main(int argc, char *argv[])
         clang_disposeString(msg);
         clang_disposeDiagnostic(diag);
     }
-    if (diagCount > 0){
+    if (diagCount > 0)
+    {
         throw std::runtime_error("parse error\n"); // 解析失败，抛出异常
     }
 

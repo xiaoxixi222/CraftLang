@@ -1,7 +1,7 @@
 #include <mcstd.h>
 
 int g1 = 10;
-int g2 = 100;
+extern int g2;
 
 int add(int a, int b)
 {

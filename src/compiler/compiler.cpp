@@ -17,9 +17,6 @@ namespace fs = std::filesystem;
 extern craftlang::Config config; // 使用 craftlang 的配置结构体
 namespace craftlang
 {
-    const std::vector<std::string> intrinsicFunctions = {
-        "print_int",
-    };
     const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue = {
         CXBinaryOperator_Assign,
     };
@@ -40,6 +37,8 @@ namespace craftlang
         CXCursor_BinaryOperator, // d = c;
         CXCursor_ParenExpr,
     };
+
+    json symbols = json::object();
 
     void replaceAll(std::string &str, const std::string &from, const std::string &to)
     {
@@ -67,22 +66,6 @@ namespace craftlang
             first = false;
             if (line.find("$") != std::string::npos)
                 result += "$";
-            result += line;
-        }
-        return result;
-    }
-    std::string addCommentPrefix(const std::string &text)
-    {
-        std::string result;
-        std::istringstream iss(text); // 已经 include 了 <sstream>
-        std::string line;
-        bool first = true;
-        while (std::getline(iss, line))
-        {
-            if (!first)
-                result += "\n";
-            first = false;
-            result += "# ";
             result += line;
         }
         return result;
@@ -357,7 +340,7 @@ namespace craftlang
                 tmp_counter = tmp + 1;
                 addCommand(std::string("scoreboard players add ") + config.name + " functionSpace 1\n" +
                            "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
-                           "function " + config.name + ":" + std::to_string(functionVar.number) + " with storage " + config.name +
+                           "function " + config.name + ":.f." + std::to_string(functionVar.number) + ".f. with storage " + config.name +
                            "\nscoreboard players remove " + config.name + " functionSpace 1\n");
                 addCommand(initVar(std::string("?(space)_tmp_") + std::to_string(tmp), functionVar.return_type.kind) +
                            setVarToVar(std::string("?(space)_tmp_") + std::to_string(tmp), std::string("return"), functionVar.return_type.kind));
@@ -367,7 +350,7 @@ namespace craftlang
                 tmp_counter = tmp;
                 addCommand(std::string("scoreboard players add ") + config.name + " functionSpace 1\n" +
                            "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
-                           "function " + config.name + ":" + std::to_string(functionVar.number) + " with storage " + config.name +
+                           "function " + config.name + ":.f." + std::to_string(functionVar.number) + ".f. with storage " + config.name +
                            "\nscoreboard players remove " + config.name + " functionSpace 1\n");
             }
             return ExprResult{tmp};
@@ -391,19 +374,9 @@ namespace craftlang
             std::vector<CXCursor> children = getChildCursors(cursor);
             current_function.name = "Global";
             current_function.cursor = cursor;
-            startFunctionContent = initVar("functionSpace", CXType_Int);
-            startFunctionContent += setConstToVar("functionSpace", "1", CXType_Int);
-
             for (const auto &child : children)
             {
                 deal_cursor(child);
-            }
-            if (functionMap.find("main") != functionMap.end())
-            {
-                startFunctionContent +=
-                    std::string("execute store result storage ") + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
-                    "function " + config.name + ":" + std::to_string(functionMap["main"].number) + " with storage " +
-                    config.name;
             }
             std::ofstream outputFile(function_path / "start.mcfunction", std::ios::out | std::ios::trunc);
             if (!outputFile)
@@ -411,26 +384,26 @@ namespace craftlang
                 std::cerr << "open output file error: " << function_path / "start.mcfunction" << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / "start.mcfunction").string());
             }
-            json symbolTable;
-            symbolTable["Global"] = json::array();
-            symbolTable["function"] = json::array();
+            symbols["Global"] = json::array();
+            symbols["function"] = json::array();
             for (const auto &pair : globalVarsToInt)
             {
                 Var var = pair.second;
-                CXString  typeName = clang_getTypeKindSpelling(var.type.kind);
-                std::string typeName_str = clang_getCString(typeName);
-                clang_disposeString(typeName);
-                symbolTable["Global"].push_back(json{var.name, var.objective, typeName_str});
+                json var_json = json::object();
+                var_json["name"] = var.name;
+                var_json["number"] = var.number;
+                var_json["isExtern"] = var.isExtern;
+                symbols["Global"].push_back(var_json);
             }
             for (const auto &pair : functionMap)
             {
                 Function function = pair.second;
-                CXString  typeName = clang_getTypeKindSpelling(function.return_type.kind);
-                std::string typeName_str = clang_getCString(typeName);
-                clang_disposeString(typeName);
-                symbolTable["function"].push_back(json{function.name, function.number, typeName_str, function.parms.size()});
+                json function_json = json::object();
+                function_json["name"] = function.name;
+                function_json["number"] = function.number;
+                function_json["isExtern"] = function.isExtern;
+                symbols["function"].push_back(function_json);
             }
-            outputFile << addCommentPrefix(symbolTable.dump(4)) << "\n";
             outputFile << addDollarPrefix(startFunctionContent);
             outputFile.close();
             break;
@@ -458,24 +431,17 @@ namespace craftlang
                     std::string parm_name_str = clang_getCString(parm_name);
                     Parm parm{clang_getCursorType(child), parm_name_str, localVarCounter++};
                     parms.push_back(parm);
-                    localVarsToInt[parm_name_str] = Var{parm_name_str, std::string("$(functionSpace)_") + std::to_string(parm.number), parm.kind, parm.number};
+                    localVarsToInt[parm_name_str] = Var{parm_name_str, std::string("$(functionSpace)_") + std::to_string(parm.number), parm.kind, parm.number, false};
                     clang_disposeString(parm_name);
                 }
             }
-            bool isIntrinsic = std::find(intrinsicFunctions.begin(), intrinsicFunctions.end(), inside_name) != intrinsicFunctions.end();
-            if (isIntrinsic && hasCompoundStmt)
-            {
-                clang_disposeString(name);
-                std::cerr << "function " << inside_name << " has been defined" << std::endl;
-                throw std::runtime_error(std::string("function ") + inside_name + " has been defined");
-            }
             if (functionMap.find(inside_name) == functionMap.end())
             {
-                functionMap[inside_name] = Function{inside_name, clang_getCursorResultType(cursor), parms, functionCounter, cursor};
+                functionMap[inside_name] = Function{inside_name, clang_getCursorResultType(cursor), parms, functionCounter, cursor, true};
                 functionCounter++;
             }
             clang_disposeString(name);
-            if (!hasCompoundStmt && !isIntrinsic)
+            if (!hasCompoundStmt)
             {
                 return; // 如果没有函数体且不是内建函数，直接返回
             }
@@ -487,48 +453,37 @@ namespace craftlang
             current_function.number = functionMap[inside_name].number;
             current_function.parms = parms;
             current_function.return_type = clang_getCursorResultType(cursor);
-            if (hasCompoundStmt)
+            current_function.isExtern = false;
+            functionMap[inside_name].isExtern = false;
+            for (const auto &parm : parms)
             {
-                for (const auto &parm : parms)
-                {
-                    current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind);
-                    current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
-                }
+                current_content += initVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), parm.kind.kind);
+                current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
+            }
 
-                std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
-                for (const auto &child : compoundStmtChildren)
-                {
-                    deal_cursor(child);
-                }
-            }
-            else
+            std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
+            for (const auto &child : compoundStmtChildren)
             {
-                if (inside_name == "print_int")
-                {
-                    current_content += "say $(0)";
-                }
-                else
-                {
-                    std::cerr << "function " << inside_name << " is not supported" << std::endl;
-                    throw std::runtime_error(std::string("function ") + inside_name + " has been defined");
-                }
+                deal_cursor(child);
             }
+
             std::ofstream outputFile(function_path / (current_file.string() + ".mcfunction"), std::ios::out | std::ios::trunc);
             if (!outputFile)
             {
                 std::cerr << "open output file error: " << function_path / (current_file.string() + ".mcfunction") << std::endl;
                 throw std::runtime_error(std::string("open output file error: ") + (function_path / (current_file.string() + ".mcfunction")).string());
             }
+            /*
             json symbolTable = json::array();
             for (const auto &pair : localVarsToInt)
             {
                 Var var = pair.second;
-                CXString  typeName = clang_getTypeKindSpelling(var.type.kind);
+                CXString typeName = clang_getTypeKindSpelling(var.type.kind);
                 std::string typeName_str = clang_getCString(typeName);
                 clang_disposeString(typeName);
                 symbolTable.push_back(json{var.name, var.objective, typeName_str});
             }
-            outputFile << addCommentPrefix(symbolTable.dump(4)) << "\n";
+            symbols[inside_name] = symbolTable;*/
             outputFile << addDollarPrefix(current_content);
             outputFile.close();
 
@@ -551,11 +506,12 @@ namespace craftlang
             CXType type = clang_getCursorType(cursor);
             CXString name = clang_getCursorSpelling(cursor);
             std::string name_str = clang_getCString(name);
+            CX_StorageClass storageClass = clang_Cursor_getStorageClass(cursor);
             clang_disposeString(name);
             if (current_function.name == "Global")
             {
                 int number = globalVarCounter;
-                globalVarsToInt[name_str] = Var{name_str, std::string("0_") + std::to_string(number), type, globalVarCounter++};
+                globalVarsToInt[name_str] = Var{name_str, std::string("0_.g.") + std::to_string(number) + ".g.", type, globalVarCounter++, storageClass == CX_SC_Extern};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
@@ -566,17 +522,17 @@ namespace craftlang
                 }
                 if (!hasInitializer)
                 {
-                    startFunctionContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
+                    startFunctionContent += initVar(std::string("0_.g." + std::to_string(number) + ".g."), type.kind);
                     return;
                 }
 
-                startFunctionContent += initVar(std::string("0_" + std::to_string(number)), type.kind);
-                startFunctionContent += setVarToVar(std::string("0_" + std::to_string(number)), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
+                startFunctionContent += initVar(std::string("0_.g." + std::to_string(number) + ".g."), type.kind);
+                startFunctionContent += setVarToVar(std::string("0_.g." + std::to_string(number) + ".g."), std::string("0_tmp_") + std::to_string(exprResult.tmp_number), type.kind);
             }
             else
             {
                 int number = localVarCounter++;
-                localVarsToInt[name_str] = Var{name_str, std::string("$(functionSpace)_") + std::to_string(number), type, number};
+                localVarsToInt[name_str] = Var{name_str, std::string("$(functionSpace)_") + std::to_string(number), type, number, false};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
@@ -642,56 +598,20 @@ namespace craftlang
 
     void compile(CXCursor root_cursor)
     {
-        fs::path build = fs::current_path() / "build";
-        fs::path output_path = build / config.name;
-
-#ifdef _DEBUG
-        std::cout << "Building " << config.name << std::endl;
-        std::cout << "Build path: " << build << std::endl;
-        std::cout << "Output path: " << output_path << std::endl;
-#endif
-        std::cout << "clear output file: " << output_path << std::endl;
-        try
-        {
-            if (fs::remove_all(output_path))
-            {
-                std::cout << "clear output file success: " << output_path << std::endl;
-            }
-            else
-            {
-                std::cout << "output file " << output_path << " is cleared" << std::endl;
-            }
-        }
-        catch (const fs::filesystem_error &e)
-        {
-            std::cerr << "clear output file error: " << e.what() << std::endl;
-        }
-        bool created = fs::create_directories(output_path);
-        if (!created)
-        {
-            std::cout << "create output directory error: " << output_path << std::endl;
-            throw std::runtime_error(std::string("create output directory error: ") + output_path.string());
-        }
-        std::ofstream outputFile(output_path / "pack.mcmeta", std::ios::out | std::ios::trunc);
-        if (!outputFile)
-        {
-            std::cerr << "open output file error: " << output_path << std::endl;
-            throw std::runtime_error(std::string("open output file error: ") + output_path.string());
-        }
-        outputFile << "{\n"
-                   << "    \"pack\": {\n"
-                   << "        \"pack_format\": " << config.pack_format << ",\n"
-                   << "        \"description\": \"" << config.description << "\"\n"
-                   << "    }\n"
-                   << "}";
-        outputFile.close();
-        created = fs::create_directories(output_path / "data" / config.name / "function");
-        if (!created)
-        {
-            std::cout << "create output directory error: " << output_path / "data" / config.name / "function" << std::endl;
-            throw std::runtime_error(std::string("create output directory error: ") + (output_path / "data" / config.name / "function").string());
-        }
-        function_path = output_path / "data" / config.name / "function";
+        fs::path build = config.output_path / (config.file_name + "_o");
+        fs::path symbols_path = build.parent_path() / (config.file_name + "_symbols.json");
+        function_path = build / "functions";
+        fs::remove_all(build);
+        fs::create_directories(function_path);
         deal_cursor(root_cursor);
+        // 保存符号表
+        std::ofstream symbolsFile(symbols_path, std::ios::out | std::ios::trunc);
+        if (!symbolsFile)
+        {
+            std::cerr << "open output file error: " << symbols_path << std::endl;
+            throw std::runtime_error(std::string("open output file error: ") + symbols_path.string());
+        }
+        symbolsFile << symbols.dump(4) << std::endl;
+        symbolsFile.close();
     }
 } // namespace craftlang
