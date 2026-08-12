@@ -600,7 +600,7 @@ namespace craftlang
     {
         fs::path build = config.output_path / (config.file_name + "_o");
         fs::path symbols_path = build.parent_path() / (config.file_name + "_symbols.json");
-        function_path = build / "functions";
+        function_path = build / "function";
         fs::remove_all(build);
         fs::create_directories(function_path);
         deal_cursor(root_cursor);

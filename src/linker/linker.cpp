@@ -20,6 +20,19 @@ namespace craftlinker
     int globalCounter = 0, functionCounter = 0;
     std::unordered_map<std::string, int> functionMap, globalMap;
     std::unordered_map<std::string, bool> functionDefined, globalDefined;
+    std::string startContext = "";
+    void replaceAll(std::string &str, const std::string &from, const std::string &to)
+    {
+        if (from.empty())
+            return; // 防止死循环
+
+        size_t start_pos = 0;
+        while ((start_pos = str.find(from, start_pos)) != std::string::npos)
+        {
+            str.replace(start_pos, from.length(), to);
+            start_pos += to.length(); // 移动到替换后的末尾，继续往后找
+        }
+    }
     void collectCategory(const char *label, const json &symbols, std::unordered_map<std::string, int> &map, std::unordered_map<std::string, bool> &defined, int &counter)
     {
         for (const auto &entry : symbols)
@@ -86,6 +99,86 @@ namespace craftlinker
         collectCategory("function", functions, functionMap, functionDefined, functionCounter);
         collectCategory("global", globals, globalMap, globalDefined, globalCounter);
     }
+    void dealFile(const fs::path &file)
+    {
+        std::unordered_map<int, int> functionDealMap, globalDealMap;
+        std::string name = file.stem().string();
+        fs::path input_path = file.parent_path() / (name.substr(0, name.size() - 8) + "_o");
+        fs::path output_path = config.outputPath / config.name / "data" / config.name;
+        std::ifstream file_stream(file);
+        if (!file_stream)
+        {
+            std::cerr << "Failed to open file: " << file << std::endl;
+            throw std::runtime_error("Failed to open file.");
+            return;
+        }
+        std::stringstream buffer;
+        buffer << file_stream.rdbuf();
+        std::string content = buffer.str();
+        json symbols = json::parse(content);
+        json functions = symbols["function"];
+        json globals = symbols["Global"];
+        for (const auto &function : functions)
+        {
+            std::string function_name = function["name"];
+            int from = function["number"];
+            int goal = functionMap[function_name];
+            functionDealMap[from] = goal;
+        }
+        for (const auto &global : globals)
+        {
+            std::string global_name = global["name"];
+            int from = global["number"];
+            int goal = globalMap[global_name];
+            globalDealMap[from] = goal;
+        }
+        for (const auto &entry : fs::directory_iterator(input_path / "function"))
+        {
+            std::string functionName = entry.path().stem().string();
+            std::ifstream functionStream(entry.path());
+            if (!functionStream)
+            {
+                std::cerr << "Failed to open file: " << file << std::endl;
+                throw std::runtime_error("Failed to open file.");
+                return;
+            }
+            std::stringstream functionBuffer;
+            functionBuffer << functionStream.rdbuf();
+            std::string functionContent = functionBuffer.str();
+            for (const auto &pair : functionDealMap)
+                replaceAll(functionContent, std::string(".f.") + std::to_string(pair.first) + ".f.", std::to_string(pair.second));
+            for (const auto &pair : globalDealMap)
+                replaceAll(functionContent, std::string(".g.") + std::to_string(pair.first) + ".g.", std::to_string(pair.second));
+            replaceAll(functionContent, "..name..", config.name);
+            if (functionName == "start")
+            {
+                startContext += functionContent + "\n";
+            }
+            else
+            {
+                fs::path function_output_file = output_path / "function" / (std::to_string(functionDealMap[std::stoi(functionName)]) + ".mcfunction");
+                std::ofstream function_output_file_stream(function_output_file, std::ios::out | std::ios::trunc);
+                if (!function_output_file_stream)
+                {
+                    std::cerr << "Failed to create function output file: " << function_output_file << std::endl;
+                    throw std::runtime_error("Failed to create function output file.");
+                }
+                function_output_file_stream << functionContent;
+                function_output_file_stream.close();
+            }
+        }
+
+#ifdef _DEBUG
+        std::cout << "[debug] === deal file ===" << std::endl;
+        std::cout << "[debug] input_path: " << input_path << std::endl;
+        std::cout << "[debug] output_path: " << output_path << std::endl;
+#endif
+        if (!fs::exists(input_path))
+        {
+            std::cerr << "Input file does not exist: " << input_path << std::endl;
+            throw std::runtime_error("Input file does not exist.");
+        }
+    }
     void link()
     {
         fs::remove_all(config.outputPath / config.name);
@@ -121,5 +214,26 @@ namespace craftlinker
             std::cout << "[debug] global " << pair.first << " -> " << pair.second << std::endl;
         }
 #endif
+
+        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ")+config.name+" functionSpace 0\n";
+        for (const auto &file : config.linkFile)
+        {
+            dealFile(file); // 调用 dealFile 函数处理每个链接文件
+        }
+        std::ofstream start_context_file(config.outputPath / config.name / "data" / config.name / "function" / "start.mcfunction", std::ios::out | std::ios::trunc);
+        if (!start_context_file)
+        {
+            std::cerr << "Failed to create start context file: " << config.outputPath / config.name / "data" / config.name / "function" / "start.mcfunction" << std::endl;
+            throw std::runtime_error("Failed to create start context file.");
+        }
+        if (functionMap.find("main") != functionMap.end())
+        {
+            startContext +=
+                std::string("execute store result storage ") + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
+                "function " + config.name + ":" + std::to_string(functionMap["main"]) + " with storage " +
+                config.name;
+        }
+        start_context_file << startContext;
+        start_context_file.close();
     }
 } // namespace craftlinker
