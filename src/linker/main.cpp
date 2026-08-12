@@ -44,8 +44,9 @@ int main(int argc, char *argv[])
     config.name = settings["name"];
     config.pack_format = settings["pack_format"];
     config.description = settings["description"];
-    config.linkFile = settings["linkFile"];
-    config.outputPath = fs::path(settings["outputPath"]);
+    for (const auto &f : settings["linkFile"])
+        config.linkFile.push_back(fs::u8path(f.get<std::string>()));
+    config.outputPath = fs::u8path(settings["outputPath"].get<std::string>());
     std::cout << "craftlinker: Settings loaded\n";
     std::cout << "craftlinker: Name: " << config.name << "\n";
     std::cout << "craftlinker: Pack Format: " << config.pack_format << "\n";

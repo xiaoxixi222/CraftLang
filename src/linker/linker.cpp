@@ -138,7 +138,7 @@ namespace craftlinker
             std::ifstream functionStream(entry.path());
             if (!functionStream)
             {
-                std::cerr << "Failed to open file: " << file << std::endl;
+                std::cerr << "Failed to open file: " << entry.path() << std::endl;
                 throw std::runtime_error("Failed to open file.");
                 return;
             }
@@ -165,6 +165,52 @@ namespace craftlinker
                 }
                 function_output_file_stream << functionContent;
                 function_output_file_stream.close();
+            }
+        }
+        if (fs::exists(input_path / "other"))
+        { // 处理其他文件
+            for (const auto &entry : fs::recursive_directory_iterator(input_path / "other"))
+            {
+                if (!entry.is_regular_file())
+                    continue; // 跳过目录
+
+                std::string otherName = entry.path().stem().string();
+                std::ifstream otherStream(entry.path());
+                if (!otherStream)
+                {
+                    std::cerr << "Failed to open file: " << entry.path() << std::endl;
+                    throw std::runtime_error("Failed to open file.");
+                    return;
+                }
+                std::stringstream otherBuffer;
+                otherBuffer << otherStream.rdbuf();
+                std::string otherContent = otherBuffer.str();
+                for (const auto &pair : functionDealMap)
+                    replaceAll(otherContent, std::string(".f.") + std::to_string(pair.first) + ".f.", std::to_string(pair.second));
+                for (const auto &pair : globalDealMap)
+                    replaceAll(otherContent, std::string(".g.") + std::to_string(pair.first) + ".g.", std::to_string(pair.second));
+                replaceAll(otherContent, "..name..", config.name);
+
+                fs::path rel = fs::relative(entry.path(), input_path / "other");
+                fs::path output_path_file = output_path.parent_path() / rel;
+#ifdef _DEBUG
+                std::cout << "[debug] entry: " << entry.path() << std::endl;
+                std::cout << "[debug] other: " << input_path / "other" << std::endl;
+                std::cout << "[debug] rel: " << rel << std::endl;
+                std::cout << "[debug] output_path_file: " << output_path_file << std::endl;
+#endif
+                if (!fs::exists(output_path_file.parent_path()))
+                {
+                    fs::create_directories(output_path_file.parent_path());
+                }
+                std::ofstream other_output_file_stream(output_path_file, std::ios::out | std::ios::trunc);
+                if (!other_output_file_stream)
+                {
+                    std::cerr << "Failed to create other output file: " << output_path_file << std::endl;
+                    throw std::runtime_error("Failed to create other output file.");
+                }
+                other_output_file_stream << otherContent;
+                other_output_file_stream.close();
             }
         }
 
@@ -215,7 +261,7 @@ namespace craftlinker
         }
 #endif
 
-        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ")+config.name+" functionSpace 0\n";
+        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ") + config.name + " functionSpace 1\n";
         for (const auto &file : config.linkFile)
         {
             dealFile(file); // 调用 dealFile 函数处理每个链接文件
