@@ -40,6 +40,12 @@ int main()
     int n = -a;
     c = c + 1;
     g1 = g1 + c;
+    c += 5;
+    c -= 2;
+    c *= 3;
+    c /= 11;
+    c %= 4;
+    g2 += 50;
     print_int(c);
     print_int(d);
     print_int(e);
@@ -49,5 +55,6 @@ int main()
     print_int(n);
     print_int(g1);
     print_int(g2);
+    print_int(c);
     return 0;
 }

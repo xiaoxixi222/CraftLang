@@ -19,7 +19,13 @@ namespace craftlang
 {
     const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue = {
         CXBinaryOperator_Assign,
+        CXBinaryOperator_AddAssign,
+        CXBinaryOperator_SubAssign,
+        CXBinaryOperator_MulAssign,
+        CXBinaryOperator_DivAssign,
+        CXBinaryOperator_RemAssign,
     };
+
     std::unordered_map<std::string, Function> functionMap = {};
     int functionCounter = 0;
 
@@ -35,6 +41,7 @@ namespace craftlang
     const std::vector<CXCursorKind> exprStatementKinds = {
         CXCursor_CallExpr,       // print_int(c); add(a,b);
         CXCursor_BinaryOperator, // d = c;
+        CXCursor_CompoundAssignOperator, // c += 5;
         CXCursor_ParenExpr,
     };
 
@@ -234,6 +241,7 @@ namespace craftlang
             return ExprResult{tmp};
         }
         case CXCursor_BinaryOperator:
+        case CXCursor_CompoundAssignOperator:
         {
             auto children = getChildCursors(expr);
             if (children.size() != 2)
@@ -253,6 +261,37 @@ namespace craftlang
                 case CXBinaryOperator_Assign:
                 {
                     addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " = " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    break;
+                }
+                case CXBinaryOperator_AddAssign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " += " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " = " + config.name + " " + left.objective + "\n");
+                    break;
+                }
+                case CXBinaryOperator_SubAssign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " -= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " = " + config.name + " " + left.objective + "\n");
+                    break;
+                }
+                case CXBinaryOperator_MulAssign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " *= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " = " + config.name + " " + left.objective + "\n");
+                    break;
+                }
+                case CXBinaryOperator_DivAssign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " /= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " = " + config.name + " " + left.objective + "\n");
+                    break;
+                }
+                case CXBinaryOperator_RemAssign:
+                {
+                    addCommand(std::string("scoreboard players operation ") + config.name + " " + left.objective + " %= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
+                    addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " = " + config.name + " " + left.objective + "\n");
+                    break;
                 }
                 default:
                 {
@@ -512,7 +551,8 @@ namespace craftlang
             {
                 int number = globalVarCounter;
                 globalVarsToInt[name_str] = Var{name_str, std::string("0_.g.") + std::to_string(number) + ".g.", type, globalVarCounter++, storageClass == CX_SC_Extern};
-                if (storageClass == CX_SC_Extern) return;
+                if (storageClass == CX_SC_Extern)
+                    return;
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
