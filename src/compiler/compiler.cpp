@@ -485,7 +485,7 @@ namespace craftlang
                 return; // 如果没有函数体且不是内建函数，直接返回
             }
 
-            current_file = fs::path(std::to_string((functionMap[inside_name].number)));
+            current_file = fs::path(std::string(".f.")+std::to_string((functionMap[inside_name].number))+".f.");
             current_content = "";
             current_function.cursor = cursor;
             current_function.name = std::string(inside_name);

@@ -135,6 +135,7 @@ namespace craftlinker
         for (const auto &entry : fs::directory_iterator(input_path / "function"))
         {
             std::string functionName = entry.path().stem().string();
+            std::string outputName = functionName;
             std::ifstream functionStream(entry.path());
             if (!functionStream)
             {
@@ -146,7 +147,10 @@ namespace craftlinker
             functionBuffer << functionStream.rdbuf();
             std::string functionContent = functionBuffer.str();
             for (const auto &pair : functionDealMap)
+            {
                 replaceAll(functionContent, std::string(".f.") + std::to_string(pair.first) + ".f.", std::to_string(pair.second));
+                replaceAll(outputName, std::string(".f.") + std::to_string(pair.first) + ".f.", std::to_string(pair.second));
+            }
             for (const auto &pair : globalDealMap)
                 replaceAll(functionContent, std::string(".g.") + std::to_string(pair.first) + ".g.", std::to_string(pair.second));
             replaceAll(functionContent, "..name..", config.name);
@@ -156,7 +160,7 @@ namespace craftlinker
             }
             else
             {
-                fs::path function_output_file = output_path / "function" / (std::to_string(functionDealMap[std::stoi(functionName)]) + ".mcfunction");
+                fs::path function_output_file = output_path / "function" / (outputName + ".mcfunction");
                 std::ofstream function_output_file_stream(function_output_file, std::ios::out | std::ios::trunc);
                 if (!function_output_file_stream)
                 {
