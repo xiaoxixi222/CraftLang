@@ -3,6 +3,8 @@
 int g1 = 10;
 extern int g2;
 
+void judge(int a, int b);
+
 int add(int a, int b)
 {
     return a + b;
@@ -56,5 +58,6 @@ int main()
     print_int(g1);
     print_int(g2);
     print_int(c);
+    judge(a, b);
     return 0;
 }

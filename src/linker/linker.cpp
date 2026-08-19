@@ -265,7 +265,8 @@ namespace craftlinker
         }
 #endif
 
-        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ") + config.name + " functionSpace 1\n";
+        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ") + config.name + " functionSpace 1\n" +
+                       "scoreboard objectives remove tmp\nscoreboard objectives add tmp dummy\n";
         for (const auto &file : config.linkFile)
         {
             dealFile(file); // 调用 dealFile 函数处理每个链接文件

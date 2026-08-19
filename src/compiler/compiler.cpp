@@ -39,8 +39,8 @@ namespace craftlang
 
     int tmp_counter = 0;
     const std::vector<CXCursorKind> exprStatementKinds = {
-        CXCursor_CallExpr,       // print_int(c); add(a,b);
-        CXCursor_BinaryOperator, // d = c;
+        CXCursor_CallExpr,               // print_int(c); add(a,b);
+        CXCursor_BinaryOperator,         // d = c;
         CXCursor_CompoundAssignOperator, // c += 5;
         CXCursor_ParenExpr,
     };
@@ -331,6 +331,40 @@ namespace craftlang
                 addCommand(std::string("scoreboard players operation ") + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + " %= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + "\n");
                 break;
             }
+            case CXBinaryOperator_EQ:
+            case CXBinaryOperator_NE:
+            case CXBinaryOperator_LT:
+            case CXBinaryOperator_LE:
+            case CXBinaryOperator_GT:
+            case CXBinaryOperator_GE:
+            {
+                addCommand(std::string("scoreboard players operation ") + config.name + " tmp = " + config.name + " ?(space)_tmp_" + std::to_string(left.tmp_number) + "\n");
+                addCommand(std::string("scoreboard players set ") + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 0\n");
+                switch (kind)
+                {
+                case CXBinaryOperator_EQ:
+                    addCommand(std::string("execute if score ") + config.name + " tmp = " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                case CXBinaryOperator_NE:
+                    addCommand(std::string("execute unless score ") + config.name + " tmp = " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                case CXBinaryOperator_LT:
+                    addCommand(std::string("execute if score ") + config.name + " tmp < " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                case CXBinaryOperator_LE:
+                    addCommand(std::string("execute if score ") + config.name + " tmp <= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                case CXBinaryOperator_GT:
+                    addCommand(std::string("execute if score ") + config.name + " tmp > " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                case CXBinaryOperator_GE:
+                    addCommand(std::string("execute if score ") + config.name + " tmp >= " + config.name + " ?(space)_tmp_" + std::to_string(right.tmp_number) + " run scoreboard players set " + config.name + " ?(space)_tmp_" + std::to_string(tmp) + " 1\n");
+                    break;
+                default:
+                    break;
+                }
+                break;
+            }
             default:
             {
                 break;
@@ -485,7 +519,7 @@ namespace craftlang
                 return; // 如果没有函数体且不是内建函数，直接返回
             }
 
-            current_file = fs::path(std::string(".f.")+std::to_string((functionMap[inside_name].number))+".f.");
+            current_file = fs::path(std::string(".f.") + std::to_string((functionMap[inside_name].number)) + ".f.");
             current_content = "";
             current_function.cursor = cursor;
             current_function.name = std::string(inside_name);
