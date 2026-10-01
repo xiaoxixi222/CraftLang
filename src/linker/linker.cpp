@@ -264,9 +264,17 @@ namespace craftlinker
             std::cout << "[debug] global " << pair.first << " -> " << pair.second << std::endl;
         }
 #endif
-
-        startContext = std::string("scoreboard objectives remove functionSpace\nscoreboard objectives add functionSpace dummy\nscoreboard players set ") + config.name + " functionSpace 1\n" +
-                       "scoreboard objectives remove tmp\nscoreboard objectives add tmp dummy\n";
+        // interrupt 0正常 1待正常 2return 3error
+        startContext = std::string("scoreboard objectives remove functionSpace\n") +
+                       "scoreboard objectives add functionSpace dummy\n" +
+                       "scoreboard players set " + config.name + " functionSpace 1\n" +
+                       "scoreboard objectives remove tmp\n" +
+                       "scoreboard objectives add tmp dummy\n" +
+                       "scoreboard objectives remove ifFlag\n" +
+                       "scoreboard objectives add ifFlag dummy\n" +
+                       "scoreboard objectives remove interrupted\n" +
+                       "scoreboard objectives add interrupted dummy\n" +
+                       "scoreboard players set " + config.name + " interrupted 0\n";
         for (const auto &file : config.linkFile)
         {
             dealFile(file); // 调用 dealFile 函数处理每个链接文件

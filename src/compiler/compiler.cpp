@@ -32,6 +32,7 @@ namespace craftlang
     std::string current_content = "", startFunctionContent = "";
     fs::path current_file = "";
     fs::path function_path = "";
+    int childrenFunctionCounter = 0;
     Function current_function;
     std::unordered_map<std::string, Var> localVarsToInt = {};  // 局部变量的编号
     std::unordered_map<std::string, Var> globalVarsToInt = {}; // 全局变量的编号
@@ -46,6 +47,11 @@ namespace craftlang
     };
 
     json symbols = json::object();
+
+    // 中断处理基础
+    std::string interruptedHandle[2] = {
+        "execute if score " + config.name + " interrupted matches 1 run scoreboard players set " + config.name + " interrupted 0\n",
+        "execute unless score " + config.name + " interrupted matches 0 run return 0\n"};
 
     void replaceAll(std::string &str, const std::string &from, const std::string &to)
     {
@@ -426,6 +432,9 @@ namespace craftlang
                            "function " + config.name + ":.f." + std::to_string(functionVar.number) + ".f. with storage " + config.name +
                            "\nscoreboard players remove " + config.name + " functionSpace 1\n");
             }
+            addCommand(interruptedHandle[0] +
+                       "execute if score " + config.name + " interrupted matches 2 run scoreboard players set " + config.name + " interrupted 0\n" +
+                       interruptedHandle[1]);
             return ExprResult{tmp};
         }
         default:
@@ -534,6 +543,7 @@ namespace craftlang
                 current_content += setConstToVar(std::string("$(functionSpace)_" + std::to_string(parm.number)), "$(" + std::to_string(parm.number) + ")", parm.kind.kind);
             }
 
+            childrenFunctionCounter = 0;
             std::vector<CXCursor> compoundStmtChildren = getChildCursors(CompoundStmt);
             for (const auto &child : compoundStmtChildren)
             {
@@ -632,7 +642,8 @@ namespace craftlang
             {
             case CXType_Void:
             {
-                current_content += "return 0\n";
+                current_content += "scoreboard players set " + config.name + " interrupted 2\n" +
+                                       "return 0\n";
                 break;
             }
             case CXType_Int:
@@ -643,7 +654,8 @@ namespace craftlang
 
                     current_content += initVar("return", CXType_Int);
                     current_content += setVarToVar("return", std::string("$(functionSpace)_tmp_") + std::to_string(exprResult.tmp_number), CXType_Int);
-                    current_content += "return 0\n";
+                    current_content += "scoreboard players set " + config.name + " interrupted 2\n" +
+                                       "return 0\n";
                 }
                 break;
             }
@@ -653,6 +665,70 @@ namespace craftlang
                 break;
             }
             }
+            break;
+        }
+        case CXCursor_CompoundStmt:
+        {
+            for (auto &child : getChildCursors(cursor))
+            {
+                deal_cursor(child);
+            }
+            break;
+        }
+        case CXCursor_IfStmt:
+        {
+            std::vector<CXCursor> children = getChildCursors(cursor);
+            CXCursor condition = children[0];
+            CXCursor then = children[1];
+            bool has_else = children.size() == 3;
+            ExprResult tmp = start_deal_expr(condition);
+            std::string oldCurrentContext = current_content, name = (std::string(".f.") + std::to_string(current_function.number) + ".f._" + std::to_string(childrenFunctionCounter++));
+            fs::path oldCurrentFile = current_file;
+            current_content = "";
+            current_file = name;
+
+            deal_cursor(then);
+
+            current_content += "scoreboard players set " + config.name + " ifFlag 1\n";
+            std::ofstream outputFile(function_path / (current_file.string() + ".mcfunction"), std::ios::out | std::ios::trunc);
+            if (!outputFile)
+            {
+                std::cerr << "open output file error: " << function_path / (current_file.string() + ".mcfunction") << std::endl;
+                throw std::runtime_error(std::string("open output file error: ") + (function_path / (current_file.string() + ".mcfunction")).string());
+            }
+
+            outputFile << addDollarPrefix(current_content);
+            outputFile.close();
+            current_content = std::string(oldCurrentContext);
+            addCommand(std::string("scoreboard players set ") + config.name + " ifFlag 0\n" +
+                       "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
+                       "execute if score " + config.name + " ?(space)_tmp_" + std::to_string(tmp.tmp_number) + " matches 1 run function " + config.name + ":" + name + " with storage " + config.name + "\n" +
+                       interruptedHandle[0] + interruptedHandle[1]);
+
+            if (has_else)
+            {
+                oldCurrentContext = current_content;
+                current_content = "";
+                name = (std::string(".f.") + std::to_string(current_function.number) + ".f._" + std::to_string(childrenFunctionCounter++));
+                current_file = name;
+                then = children[2];
+
+                deal_cursor(then);
+
+                std::ofstream outputFile(function_path / (current_file.string() + ".mcfunction"), std::ios::out | std::ios::trunc);
+                if (!outputFile)
+                {
+                    std::cerr << "open output file error: " << function_path / (current_file.string() + ".mcfunction") << std::endl;
+                    throw std::runtime_error(std::string("open output file error: ") + (function_path / (current_file.string() + ".mcfunction")).string());
+                }
+
+                outputFile << addDollarPrefix(current_content);
+                outputFile.close();
+                current_content = std::string(oldCurrentContext);
+                current_content += std::string("execute if score " + config.name + " ifFlag matches 0 run function " + config.name + ":" + name + " with storage " + config.name + "\n" +
+                                               interruptedHandle[0] + interruptedHandle[1]);
+            }
+            current_file = oldCurrentFile;
             break;
         }
         default:

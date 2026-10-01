@@ -8,7 +8,7 @@ namespace craftlang {
 
 struct Config
 {
-    std::string name;
+    std::string name = "..name..";
     std::string file_name;
     std::filesystem::path output_path;
 };

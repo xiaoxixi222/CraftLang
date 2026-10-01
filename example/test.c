@@ -4,6 +4,7 @@ int g1 = 10;
 extern int g2;
 
 void judge(int a, int b);
+int classify(int x);
 
 int add(int a, int b)
 {
@@ -59,5 +60,8 @@ int main()
     print_int(g2);
     print_int(c);
     judge(a, b);
+    print_int(classify(10));
+    print_int(classify(-5));
+    print_int(classify(0));
     return 0;
 }

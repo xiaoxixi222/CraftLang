@@ -37,8 +37,7 @@ int main(int argc, char *argv[])
         config.output_path = fs::current_path() / "build"; // 默认输出路径为当前工作目录
     }
     std::cout << "Input file: " << filePath << "\n";
-
-    config.name = "..name..";
+    
     config.file_name = filePath2.stem().string();
 
     // libclang 解析与 AST 遍历
