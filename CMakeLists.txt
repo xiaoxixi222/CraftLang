@@ -33,6 +33,22 @@ target_include_directories(craftlang PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party/json"
 )
 
+# ── craftsim: mcfunction 执行模拟器 + 单步调试器 ─────────────────────
+file(GLOB_RECURSE SIM_SOURCES "${CMAKE_SOURCE_DIR}/src/sim/*.cpp")
+add_executable(craftsim ${SIM_SOURCES})
+set_target_properties(craftsim PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
+
+target_include_directories(craftsim PRIVATE
+    "${CMAKE_SOURCE_DIR}/include"
+    "${CMAKE_SOURCE_DIR}/third_party/json"
+)
+
+if(MSVC)
+    target_compile_options(craftsim PRIVATE /W4)
+else()
+    target_compile_options(craftsim PRIVATE -Wall -Wextra)
+endif()
+
 # ── Third-party dependencies ────────────────────────────────────────
 # libclang (LLVM/Clang 的 C 接口)
 if(DEFINED ENV{LIBCLANG_PATH})
