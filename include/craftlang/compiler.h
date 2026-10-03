@@ -56,7 +56,7 @@ namespace craftlang
     extern std::filesystem::path function_path;
     extern Function current_function;
 
-    extern std::unordered_map<std::string, Var> localVarsToInt;
+    extern std::vector<std::unordered_map<std::string, Var>> localVarsToInt;
     extern std::unordered_map<std::string, Var> globalVarsToInt;
     extern int localVarCounter;
     extern int globalVarCounter;

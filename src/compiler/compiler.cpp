@@ -34,8 +34,8 @@ namespace craftlang
     fs::path function_path = "";
     int childrenFunctionCounter = 0;
     Function current_function;
-    std::unordered_map<std::string, Var> localVarsToInt = {};  // 局部变量的编号
-    std::unordered_map<std::string, Var> globalVarsToInt = {}; // 全局变量的编号
+    std::vector<std::unordered_map<std::string, Var>> localVarsToInt = {}; // 局部变量的编号
+    std::unordered_map<std::string, Var> globalVarsToInt = {};             // 全局变量的编号
     int localVarCounter = 0, globalVarCounter = 0;
 
     int tmp_counter = 0;
@@ -140,14 +140,29 @@ namespace craftlang
         }
         return set;
     }
-    const Var &find_var(std::string name)
+
+    Var find_local_var(std::string name)
     {
-        auto itl = localVarsToInt.find(name),
-             itg = globalVarsToInt.find(name);
-        if (itl != localVarsToInt.end())
+        for (int i = (int)localVarsToInt.size() - 1; i >= 0; --i)
         {
-            return itl->second;
+            auto &localVars = localVarsToInt[i];
+            auto it = localVars.find(name);
+            if (it != localVars.end())
+            {
+                return it->second;
+            }
         }
+        return Var{"", "", CXType{}, -1, false};
+    }
+
+    Var find_var(std::string name)
+    {
+        Var itl = find_local_var(name);
+        if (itl.number != -1)
+        {
+            return itl;
+        }
+        auto itg = globalVarsToInt.find(name);
         if (itg != globalVarsToInt.end())
         {
             return itg->second;
@@ -499,6 +514,7 @@ namespace craftlang
             std::vector<CXCursor> children = getChildCursors(cursor);
             localVarCounter = 0;
             localVarsToInt.clear();
+            localVarsToInt.push_back(std::unordered_map<std::string, Var>{});
             bool hasCompoundStmt = false;
             for (const auto &child : children)
             {
@@ -513,7 +529,7 @@ namespace craftlang
                     std::string parm_name_str = clang_getCString(parm_name);
                     Parm parm{clang_getCursorType(child), parm_name_str, localVarCounter++};
                     parms.push_back(parm);
-                    localVarsToInt[parm_name_str] = Var{parm_name_str, std::string("$(functionSpace)_") + std::to_string(parm.number), parm.kind, parm.number, false};
+                    localVarsToInt[0][parm_name_str] = Var{parm_name_str, std::string("$(functionSpace)_") + std::to_string(parm.number), parm.kind, parm.number, false};
                     clang_disposeString(parm_name);
                 }
             }
@@ -616,7 +632,7 @@ namespace craftlang
             else
             {
                 int number = localVarCounter++;
-                localVarsToInt[name_str] = Var{name_str, std::string("$(functionSpace)_") + std::to_string(number), type, number, false};
+                localVarsToInt.back()[name_str] = Var{name_str, std::string("$(functionSpace)_") + std::to_string(number), type, number, false};
                 CXCursor initializer = clang_Cursor_getVarDeclInitializer(cursor);
                 bool hasInitializer = false;
                 ExprResult exprResult;
@@ -643,7 +659,7 @@ namespace craftlang
             case CXType_Void:
             {
                 current_content += "scoreboard players set " + config.name + " interrupted 2\n" +
-                                       "return 0\n";
+                                   "return 0\n";
                 break;
             }
             case CXType_Int:
@@ -669,10 +685,12 @@ namespace craftlang
         }
         case CXCursor_CompoundStmt:
         {
+            localVarsToInt.push_back(std::unordered_map<std::string, Var>{});
             for (auto &child : getChildCursors(cursor))
             {
                 deal_cursor(child);
             }
+            localVarsToInt.pop_back();
             break;
         }
         case CXCursor_IfStmt:
