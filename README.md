@@ -74,7 +74,6 @@ test.c ──craftlang──▶ build/test_o/function/*.mcfunction
 - `while` / `do-while` / `for` 循环（编译时抛 `unsupported cursor: WhileStmt`）
 - 除 `int` 外的类型（浮点、字符、数组、结构体、指针均报 `unsupported type`）
 - craftsim 的实际指令执行与单步调试
-- `loadDatapack` 尚未把 `.mcfunction` 注册进 `function_map`（见已知限制 5）
 
 ## 目录结构
 
@@ -208,7 +207,7 @@ build/craftlang/craftlang/
 2. **不支持循环语句**：`while`/`do-while`/`for` 命中 `deal_cursor` 的 default 分支，抛 `unsupported cursor: WhileStmt` 终止编译。
 3. **函数编号由 AST 遍历顺序决定**：文件名为纯编号，`main` 的编号取决于它前面的 `FunctionDecl` 数量；链接器会按符号表统一重编号，但新增/重排函数仍会改变占位符对应关系。
 4. **任何 libclang 诊断都会终止编译**：`diagCount > 0` 即抛 `parse error`（警告也算），源码需保证零警告。
-5. **craftsim 尚不能链接运行**：`datapack.hpp` 中 `function_map` 只有 `extern` 声明、`loadDatapack` 尚未实现注册逻辑，导致未定义符号链接错误；`executeFunction` 目前只做宏展开并 `_DEBUG` 打印，不执行任何指令。
+5. **craftsim 尚不能执行指令**：`loadDatapack` 可加载数据包、`dueWithFunction` 可完成宏展开，但 `executeFunction` 目前只调用宏展开并 `_DEBUG` 打印结果，不真正执行 mcfunction 指令。
 6. **分词器尚未接入**：`initTokenizeContext`/`tokenize` 已实现但没有调用方，等待与执行链路对接。
 7. **`dueWithFunction` 的宏展开规则**：只有行首 `$` 的行会被处理（去掉该行开头的 `$` 后展开）；无 `$(...)` 时原样返回，不依赖 `source`；`source` 查不到、或某 key 不在宏表中时保留 `$(key)` 原样；宏表值只接受 String 与数值类型，List/Compound/数组跳过。
 
