@@ -143,5 +143,20 @@
 
 ---
 
+## sim
+从 build\craftlang\...\function\*.mcfunction 提取的全部发射命令（封闭子集，13 种 + 宏规则）：
+#	命令	语义要点
+1	scoreboard objectives add/remove <obj> dummy	记分项创建/删除
+2	scoreboard players set/add/remove <e> <obj> <int>	实体恒为 craftlang（单一假玩家）
+3	scoreboard players operation <e> <o> <op> <e2> <o2>	op 全集：= += -= *= /= %=
+4	execute if score ... <cmp> ... run <cmd>	cmp 全集：= != > >= < <=
+5	execute if/unless score ... matches <range> run <cmd>	range：N / N..M / ..M / N..
+6	execute store result storage <ns> <key> int <scale> run scoreboard players get ...	storage 只存 int
+7	function <ns>:<path> with storage <ns>	调用 = 绑定宏快照 + 压栈
+8	return <int>	中止当前函数帧（返回值无人读取，弹栈即可）
+9	say <text>	print_int = $say $(0)，捕获此行即测试输出
+10	$-宏行	文本替换 $(key) 后按上面 1-9 执行
+---
+
 ## 结语
 本编译器架构经过从临时变量分配、表达式求值策略到完整六阶段演进的深入推演，充分利用了 Minecraft 1.20.5+ 的宏、计分板和 storage 机制，实现了高度自洽的 C 语言到数据包的编译方案。设计上遵循不扩展 C 语法、信任目标平台、零成本抽象等原则，将平台限制转化为创新契机。项目采用渐进式交付，每个版本独立可测，降低了单人开发的难度与风险。至此，架构设计已基本完整，可以进入 V1.0 的实现阶段。

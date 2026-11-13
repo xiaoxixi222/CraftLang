@@ -7,6 +7,14 @@
 
 namespace craftsim
 {
+    std::map<std::string, craftsim::CommandFunc, std::less<>> commandToFunction = {
+        {"return", (CommandFunc) nullptr},
+        {"scoreboard", (CommandFunc) nullptr},
+        {"execute", (CommandFunc) nullptr},
+        {"function", (CommandFunc) nullptr},
+        {"say", commandRunner::runSay},
+        {"data", (CommandFunc) nullptr},
+    }; // 指令->函数映射表
     namespace
     {
 
@@ -29,13 +37,20 @@ namespace craftsim
         // list / compound / array / end 返回 nullopt，跳过
         std::optional<std::string> nbt_to_macro_string(const NBT &v)
         {
-            if (v.is_string()) return std::get<std::string>(v.value);
-            if (v.is_byte()) return std::to_string(static_cast<int>(std::get<int8_t>(v.value)));
-            if (v.is_short()) return std::to_string(std::get<int16_t>(v.value));
-            if (v.is_int()) return std::to_string(std::get<int32_t>(v.value));
-            if (v.is_long()) return std::to_string(std::get<int64_t>(v.value));
-            if (v.is_float()) return std::to_string(std::get<float>(v.value));
-            if (v.is_double()) return std::to_string(std::get<double>(v.value));
+            if (v.is_string())
+                return std::get<std::string>(v.value);
+            if (v.is_byte())
+                return std::to_string(static_cast<int>(std::get<int8_t>(v.value)));
+            if (v.is_short())
+                return std::to_string(std::get<int16_t>(v.value));
+            if (v.is_int())
+                return std::to_string(std::get<int32_t>(v.value));
+            if (v.is_long())
+                return std::to_string(std::get<int64_t>(v.value));
+            if (v.is_float())
+                return std::to_string(std::get<float>(v.value));
+            if (v.is_double())
+                return std::to_string(std::get<double>(v.value));
             return std::nullopt;
         }
 
@@ -162,7 +177,7 @@ namespace craftsim
             }
             if (!inString)
             {
-                if ((c == ' ' || c == '\n'))
+                if ((c == ' ' || c == '\r' || c == '\n'))
                 {
                     if (start.has_value())
                     {
@@ -187,6 +202,24 @@ namespace craftsim
                     context.rowStarts.push_back(location + 1);
                     return;
                 }
+                if (c == '\r')
+                {
+                    // CRLF：跳过 \r，由后面的 \n 生成唯一的换行 token
+                    if (location + 1 < (int)function.size() && function[location + 1] == '\n')
+                    {
+                        context.pos.second++;
+                        continue;
+                    }
+                    // 单独的 \r 也按换行处理
+                    token.start = context.pos;
+                    token.end = context.pos;
+                    token.string = function.substr(location, 1);
+                    token.tokentype = TOK_NEWLINE;
+                    context.pos.first++;
+                    context.pos.second = 0;
+                    context.rowStarts.push_back(location + 1);
+                    return;
+                }
                 if (c == ' ')
                 {
 
@@ -198,7 +231,7 @@ namespace craftsim
             }
             else
             {
-                if (c == '\n')
+                if (c == '\n' || c == '\r')
                 {
                     token.tokentype = TOK_ERROR;
                     return;
@@ -207,7 +240,7 @@ namespace craftsim
             context.pos.second++;
         }
     }
-    std::string dueWithFunction(std::string function, std::optional<std::string> source, std::optional<NbtPath> path)
+    DueWithFunctionResult dueWithFunction(std::string function, std::optional<std::string> source, std::optional<NbtPath> path)
     {
         // 第一步：扫描整个函数，看有没有需要展开的宏
         bool need_macro = false;
@@ -226,16 +259,16 @@ namespace craftsim
 
         // 没有宏需要展开 → 原样返回，不需要 source
         if (!need_macro)
-            return function;
+            return DueWithFunctionResult{function, false, ""};
 
         // 有宏但没有 source → 没有数据来源，原样返回
         if (!source.has_value())
-            return function;
+            return DueWithFunctionResult{function, true, "Function has macros but no source provided."};
 
         // 用 source 在 storage 里查 NBT
         auto it = storage.data.find(*source);
         if (it == storage.data.end())
-            return function; // 找不到就原样返回
+            return DueWithFunctionResult{function, true, "Source not found."}; // 找不到就原样返回
 
         NBT &root = it->second;
 
@@ -289,15 +322,80 @@ namespace craftsim
                 result += '\n';
         }
 
-        return result;
+        return DueWithFunctionResult{result, false, ""};
     }
-    
-    void executeFunction(const Function &function, const std::optional<std::string> &source, const std::optional<NbtPath> &path)
+
+    ReturnState executeFunction(const Function &function, const std::optional<std::string> &source, const std::optional<NbtPath> &path)
     {
-        std::string processed_function = dueWithFunction(function.content, source, path);
+        auto due_with_function_result = dueWithFunction(function.content, source, path);
+        if (due_with_function_result.hasError)
+        {
+            return ReturnState{-1, false, false, "", due_with_function_result.errorMessage, "", ""};
+        }
+        std::string processed_function = due_with_function_result.processedFunction;
 #ifdef _DEBUG
-        std::cout << "Executing function:\n" << processed_function << std::endl;
+        std::cout << "Executing function:\n"
+                  << processed_function << std::endl;
 #endif
-        
+        std::string output, error, warn, info;
+        std::string_view processed_function_view(processed_function);
+        TokenizeContext context = initTokenizeContext(processed_function_view);
+        Token token{};
+        while (true)
+        {
+#ifdef _DEBUG
+            std::cout << "Tokenizing " << token.tokentype << std::endl;
+#endif
+            if (token.tokentype == TOK_END)
+                return ReturnState{0, false, false, output, error, warn, info};
+            tokenize(context, token);
+            if (token.tokentype == TOK_NEWLINE)
+                continue;
+            auto it = commandToFunction.find(token.string);
+            if (it != commandToFunction.end() && it->second != nullptr)
+            {
+                auto ret = it->second(token, context);
+                warn = ret.warn = warn + ret.warn;
+                info = ret.info = info + ret.info;
+                error = ret.error = error + ret.error;
+                output = ret.out = output + ret.out;
+                if (ret.isReturn)
+                {
+                    return ret;
+                };
+            }
+            else
+            {
+                warn += "Unknown command: " + std::string(token.string) + ",position: " + std::to_string(token.start.first) + ":" + std::to_string(token.start.second) + "\n";
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+            }
+        }
     }
+    namespace commandRunner
+    {
+        ReturnState runSay(Token &token, TokenizeContext &context)
+        {
+            auto start = token.start;
+            tokenize(context, token);
+            if (token.tokentype != TOK_WORD && token.tokentype != TOK_STRING)
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+                return ReturnState{-1, false, false, "", "say command requires a message argument", "", ""};
+            }
+            else if (token.tokentype == TOK_STRING)
+            {
+                token.string.remove_prefix(1);
+                token.string.remove_suffix(1);
+                std::string message = std::string(token.string); // 去掉引号
+                return ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
+            }
+            else
+            {
+                std::string message = std::string(token.string);
+                return ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
+            }
+        }
+    } // namespace commandRunner
 } // namespace craftsim
