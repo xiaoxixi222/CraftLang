@@ -66,5 +66,6 @@ namespace craftsim
     namespace commandRunner
     {
         ReturnState runSay(Token &token, TokenizeContext &context);
+        ReturnState runReturn(Token &token, TokenizeContext &context);
     } // namespace commandRunner
 } // namespace craftsim

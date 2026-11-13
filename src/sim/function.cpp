@@ -8,7 +8,7 @@
 namespace craftsim
 {
     std::map<std::string, craftsim::CommandFunc, std::less<>> commandToFunction = {
-        {"return", (CommandFunc) nullptr},
+        {"return", commandRunner::runReturn},
         {"scoreboard", (CommandFunc) nullptr},
         {"execute", (CommandFunc) nullptr},
         {"function", (CommandFunc) nullptr},
@@ -17,7 +17,31 @@ namespace craftsim
     }; // 指令->函数映射表
     namespace
     {
+        // 判断字符串是否是纯整数（可选正负号，后面全是数字）
+        bool isPureInteger(const std::string_view &str)
+        {
+            if (str.empty())
+                return false; // 空字符串不是数字
 
+            // 处理正负号（可选）
+            size_t i = 0;
+            if (str[0] == '+' || str[0] == '-')
+            {
+                if (str.length() == 1)
+                    return false; // 只有一个符号也不行
+                i = 1;
+            }
+
+            for (; i < str.length(); ++i)
+            {
+                // 判断字符是否在 '0' 到 '9' 之间
+                if (str[i] < '0' || str[i] > '9')
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
         // 判断一行里是否有 $(...) 形态的宏引用
         bool has_macro(const std::string &line)
         {
@@ -378,6 +402,8 @@ namespace craftsim
         {
             auto start = token.start;
             tokenize(context, token);
+
+            ReturnState ret;
             if (token.tokentype != TOK_WORD && token.tokentype != TOK_STRING)
             {
                 while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
@@ -389,13 +415,46 @@ namespace craftsim
                 token.string.remove_prefix(1);
                 token.string.remove_suffix(1);
                 std::string message = std::string(token.string); // 去掉引号
-                return ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
+                ret = ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
             }
             else
             {
                 std::string message = std::string(token.string);
-                return ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
+                ret = ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
             }
+            tokenize(context, token);
+            if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+                ret.error = "say command only takes one argument";
+                ret.successFlag = false;
+            }
+            return ret;
+        }
+        ReturnState runReturn(Token &token, TokenizeContext &context)
+        {
+            auto start = token.start;
+            tokenize(context, token);
+            ReturnState ret;
+            if (isPureInteger(token.string))
+            {
+                int returnValue = std::stoi(std::string(token.string));
+                ret = ReturnState{returnValue, true, true, "", "", "", "return(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + std::to_string(returnValue) + "\n"};
+            }
+            else
+            {
+                ret = ReturnState{-1, false, true, "", "return command requires an integer argument", "", ""};
+            }
+            tokenize(context, token);
+            if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+                ret.error = "return command only takes one argument";
+                ret.successFlag = false;
+            }
+            return ret;
         }
     } // namespace commandRunner
 } // namespace craftsim
