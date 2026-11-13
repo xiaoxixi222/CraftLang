@@ -16,10 +16,15 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem; // 使用 std::filesystem 库
 
-craftlang::Config config; // 使用 craftlang 的配置结构体
+namespace craftlang
+{
+    Config config; // 使用 craftlang 的配置结构体
+}
 
 int main(int argc, char *argv[])
 {
+    using craftlang::config;
+
     if (argc < 2)
     {
         std::cerr << "Usage: craftlang <source-file.c>\n";

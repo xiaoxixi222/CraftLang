@@ -13,6 +13,8 @@ struct Config
     std::filesystem::path output_path;
 };
 
+extern Config config;
+
 } // namespace craftlang
 
 #endif // CRAFTLANG_CONFIG_H

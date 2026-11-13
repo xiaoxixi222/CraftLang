@@ -14,7 +14,6 @@
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
-extern craftlang::Config config; // 使用 craftlang 的配置结构体
 namespace craftlang
 {
     const std::vector<CXBinaryOperatorKind> binaryOperatorNeedLValue = {
@@ -32,7 +31,7 @@ namespace craftlang
     std::string current_content = "", startFunctionContent = "";
     fs::path current_file = "";
     fs::path function_path = "";
-    int childrenFunctionCounter = 0;
+    static int childrenFunctionCounter = 0;
     Function current_function;
     std::vector<std::unordered_map<std::string, Var>> localVarsToInt = {}; // 局部变量的编号
     std::unordered_map<std::string, Var> globalVarsToInt = {};             // 全局变量的编号
@@ -48,12 +47,16 @@ namespace craftlang
 
     json symbols = json::object();
 
-    // 中断处理基础
-    std::string interruptedHandle[2] = {
-        "execute if score " + config.name + " interrupted matches 1 run scoreboard players set " + config.name + " interrupted 0\n",
-        "execute unless score " + config.name + " interrupted matches 0 run return 0\n"};
+    // 中断处理基础（函数内静态初始化，避免跨 TU 静态初始化顺序问题）
+    static const std::string &interruptedHandle(int index)
+    {
+        static const std::string handles[2] = {
+            "execute if score " + config.name + " interrupted matches 1 run scoreboard players set " + config.name + " interrupted 0\n",
+            "execute unless score " + config.name + " interrupted matches 0 run return 0\n"};
+        return handles[index];
+    }
 
-    void replaceAll(std::string &str, const std::string &from, const std::string &to)
+    static void replaceAll(std::string &str, const std::string &from, const std::string &to)
     {
         if (from.empty())
             return; // 防止死循环
@@ -141,7 +144,7 @@ namespace craftlang
         return set;
     }
 
-    Var find_local_var(std::string name)
+    static Var find_local_var(std::string name)
     {
         for (int i = (int)localVarsToInt.size() - 1; i >= 0; --i)
         {
@@ -155,7 +158,7 @@ namespace craftlang
         return Var{"", "", CXType{}, -1, false};
     }
 
-    Var find_var(std::string name)
+    static Var find_var(std::string name)
     {
         Var itl = find_local_var(name);
         if (itl.number != -1)
@@ -171,7 +174,7 @@ namespace craftlang
         std::cerr << "variable not found: " << name << std::endl;
         throw std::runtime_error(std::string("variable not found: ") + name);
     }
-    void addCommand(std::string cmd)
+    static void addCommand(std::string cmd)
     {
         if (current_function.name == "Global")
         {
@@ -447,9 +450,9 @@ namespace craftlang
                            "function " + config.name + ":.f." + std::to_string(functionVar.number) + ".f. with storage " + config.name +
                            "\nscoreboard players remove " + config.name + " functionSpace 1\n");
             }
-            addCommand(interruptedHandle[0] +
+            addCommand(interruptedHandle(0) +
                        "execute if score " + config.name + " interrupted matches 2 run scoreboard players set " + config.name + " interrupted 0\n" +
-                       interruptedHandle[1]);
+                       interruptedHandle(1));
             return ExprResult{tmp};
         }
         default:
@@ -721,7 +724,7 @@ namespace craftlang
             addCommand(std::string("scoreboard players set ") + config.name + " ifFlag 0\n" +
                        "execute store result storage " + config.name + " functionSpace int 1 run scoreboard players get " + config.name + " functionSpace\n" +
                        "execute if score " + config.name + " ?(space)_tmp_" + std::to_string(tmp.tmp_number) + " matches 1 run function " + config.name + ":" + name + " with storage " + config.name + "\n" +
-                       interruptedHandle[0] + interruptedHandle[1]);
+                       interruptedHandle(0) + interruptedHandle(1));
 
             if (has_else)
             {
@@ -744,7 +747,7 @@ namespace craftlang
                 outputFile.close();
                 current_content = std::string(oldCurrentContext);
                 current_content += std::string("execute if score " + config.name + " ifFlag matches 0 run function " + config.name + ":" + name + " with storage " + config.name + "\n" +
-                                               interruptedHandle[0] + interruptedHandle[1]);
+                                               interruptedHandle(0) + interruptedHandle(1));
             }
             current_file = oldCurrentFile;
             break;

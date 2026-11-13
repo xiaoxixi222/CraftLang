@@ -1,4 +1,5 @@
 #include <linker/config.h>
+#include <linker/linker.h>
 
 #include <json.hpp>
 
@@ -14,7 +15,6 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-extern craftlinker::Config config;
 namespace craftlinker
 {
     int globalCounter = 0, functionCounter = 0;
