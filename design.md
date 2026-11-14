@@ -171,7 +171,7 @@
 | 9 | `say <text>` | `print_int = $say $(0)`，捕获此行即测试输出 | 已实现（行模式捕获整行） |
 | 10 | `$-宏行` | 文本替换 `$(key)` 后按上面 1-9 执行 | 已实现 `dueWithFunction`，仅行首 `$` |
 
-当前 `craftsim` 的命令分发表中，`scoreboard`、`execute`、`function`、`data` 仍是 `nullptr`；`data` 尚未列入上面的编译器发射子集。
+当前 `craftsim` 的命令分发表中，`scoreboard` 已注册 `runScoreboard`，但 `objectives` / `players` 子命令仍是只消费整行的占位实现；`execute`、`function`、`data` 仍是 `nullptr`。`data` 尚未列入上面的编译器发射子集。
 
 ---
 

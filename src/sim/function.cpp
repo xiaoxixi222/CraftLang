@@ -9,7 +9,7 @@ namespace craftsim
 {
     std::map<std::string, craftsim::CommandFunc, std::less<>> commandToFunction = {
         {"return", commandRunner::runReturn},
-        {"scoreboard", (CommandFunc) nullptr},
+        {"scoreboard", commandRunner::runScoreboard},
         {"execute", (CommandFunc) nullptr},
         {"function", (CommandFunc) nullptr},
         {"say", commandRunner::runSay},
@@ -419,14 +419,15 @@ namespace craftsim
         auto due_with_function_result = dueWithFunction(function.content, source, path);
         if (due_with_function_result.hasError)
         {
-            return ReturnState{-1, false, false, "", due_with_function_result.errorMessage, "", ""};
+            return ReturnState{-1, false, false, {}, {{{-1, -1}, due_with_function_result.errorMessage}}, {}, {}};
         }
         std::string processed_function = due_with_function_result.processedFunction;
 #ifdef _DEBUG
         std::cout << "Executing function:\n"
                   << processed_function << std::endl;
 #endif
-        std::string output, error, warn, info;
+        std::vector<LogEntry> error, warn, info;
+        std::string output;
         std::string_view processed_function_view(processed_function);
         TokenizeContext context = initTokenizeContext(processed_function_view);
         Token token{};
@@ -451,22 +452,18 @@ namespace craftsim
             if (it != commandToFunction.end() && it->second != nullptr)
             {
                 auto ret = it->second(token, context);
-                warn += ret.warn;
-                ret.warn = warn;
-                info += ret.info;
-                ret.info = info;
-                error += ret.error;
-                ret.error = error;
+                warn.insert(warn.end(), ret.warn.begin(), ret.warn.end());
+                error.insert(error.end(), ret.error.begin(), ret.error.end());
                 output += ret.out;
-                ret.out = output;
+                info.insert(info.end(), ret.info.begin(), ret.info.end());
                 if (ret.isReturn)
                 {
-                    return ret;
+                    return {ret.returnValue, ret.successFlag, false, output, error, warn, info};
                 };
             }
             else
             {
-                warn += "Unknown command: " + std::string(token.string) + ",position: " + std::to_string(token.start.first) + ":" + std::to_string(token.start.second) + "\n";
+                warn.push_back({token.start, "Unknown command: " + std::string(token.string)});
                 while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
                     tokenize(context, token);
             }
@@ -480,7 +477,7 @@ namespace craftsim
             tokenize(context, token, TOKENIZE_LINE);
 
             if (token.tokentype == TOK_END)
-                return ReturnState{-1, false, false, "", "say command requires a message argument", "", ""};
+                return ReturnState{-1, false, false, {}, {{start, "say command requires a message argument"}}, {}, {}};
 
             std::string message(token.string);
 
@@ -491,10 +488,9 @@ namespace craftsim
             tokenize(context, token);
 
             if (message.empty())
-                return ReturnState{-1, false, false, "", "say command requires a message argument", "", ""};
+                return ReturnState{-1, false, false, {}, {{start, "say command requires a message argument"}}, {}, {}};
 
-            return ReturnState{0, true, false, message + "\n", "", "",
-                               "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
+            return ReturnState{0, true, false, message + "\n", {}, {}, {{start, "say:" + message}}};
         }
         ReturnState runReturn(Token &token, TokenizeContext &context)
         {
@@ -504,13 +500,13 @@ namespace craftsim
             if (token.tokentype == TOK_WORD && isPureInteger(token.string))
             {
                 int returnValue = std::stoi(std::string(token.string));
-                ret = ReturnState{returnValue, true, true, "", "", "", "return(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + std::to_string(returnValue) + "\n"};
+                ret = ReturnState{returnValue, true, true, "", {}, {}, {{start, "return: " + std::to_string(returnValue)}}};
                 tokenize(context, token);
                 if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
                 {
                     while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
                         tokenize(context, token);
-                    ret.error = "return command only takes one argument";
+                    ret.error.push_back({start, "return command only takes one argument"});
                     ret.successFlag = false;
                 }
             }
@@ -519,9 +515,39 @@ namespace craftsim
                 // 缺参数时 token 可能已经是行尾，不能再 tokenize，否则会吞掉下一行
                 while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
                     tokenize(context, token);
-                ret = ReturnState{-1, false, true, "", "return command requires an integer argument", "", ""};
+                ret = ReturnState{-1, false, true, "", {{start, "return command requires an integer argument"}}, {}, {}};
             }
             return ret;
+        }
+        ReturnState runScoreboard(Token &token, TokenizeContext &context)
+        {
+            auto start = token.start;
+            tokenize(context, token);
+            if (token.tokentype != TOK_WORD)
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+                return ReturnState{-1, false, false, "", {{start, "scoreboard command requires arguments"}}, {}, {}};
+            }
+            std::string subcommand(token.string);
+            if (subcommand == "objectives")
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token); // 临时
+                return ReturnState{0, false, false, {}, {}, {}, {}};
+            }
+            else if (subcommand == "players")
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token); // 临时
+                return ReturnState{-1, false, false, {}, {}, {}, {}};
+            }
+            else
+            {
+                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                    tokenize(context, token);
+                return ReturnState{-1, false, false, "", {{start, "scoreboard command Unknown argument " + subcommand + "\n"}}, {}, {}};
+            }
         }
     } // namespace commandRunner
 } // namespace craftsim

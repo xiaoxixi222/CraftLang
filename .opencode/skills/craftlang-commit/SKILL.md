@@ -122,11 +122,13 @@ build\craftsim.exe
 
 当前示例 `example/test/data/test/function/test.mcfunction` 的关键预期：
 
-- 输出包含 `output: 123456`
+- 输出包含 `Return value: 0`
+- 输出包含 `123456`
 - 输出包含 `"this is a test"`
-- 输出包含 `return(7:0): 0`
-- 不包含 `Unknown command: ,position: 0:0`
-- `scoreboard` / `execute` 的 `Unknown command` warning 目前是预期的，因为这两个命令尚未实现；不要把这类预期 warning 当成失败。
+- 输出包含 `Info: (7:0) return: 0`
+- 不包含 `Unknown command: ,`
+- `Warn: (6:0) Unknown command: execute` 目前是预期的；`scoreboard` 已注册 handler，当前占位实现只跳过整行，不应再出现 `Unknown command: scoreboard`。
+- 不要把预期的 `execute` warning 当成失败；如果出现新的 command warning，需要按实际实现更新这段预期。
 - 如果本次改动修改了 `example/test/...`，预期输出要按新内容同步确认。
 
 如果改动涉及分词器、`say`、`return` 或 `executeFunction`，额外验证：

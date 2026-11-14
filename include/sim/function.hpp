@@ -14,15 +14,28 @@ namespace craftsim
         std::string name;
         std::string content;
     };
+    struct LogEntry
+    {
+        std::pair<int, int> position;
+        std::string message;
+    };
+    /*returnValue
+    successFlag
+    isReturn
+    out
+    error
+    warn
+    info
+    */
     struct ReturnState
     {
         int returnValue;
         bool successFlag;
         bool isReturn;
         std::string out;
-        std::string error;
-        std::string warn;
-        std::string info;
+        std::vector<LogEntry> error;
+        std::vector<LogEntry> warn;
+        std::vector<LogEntry> info;
     };
     enum TokenType
     {
@@ -73,5 +86,6 @@ namespace craftsim
     {
         ReturnState runSay(Token &token, TokenizeContext &context);
         ReturnState runReturn(Token &token, TokenizeContext &context);
+        ReturnState runScoreboard(Token &token, TokenizeContext &context);
     } // namespace commandRunner
 } // namespace craftsim

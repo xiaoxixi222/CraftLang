@@ -59,15 +59,16 @@ example/test/
         ▼
   tokenize ──▶ executeFunction 命令分派
         │
-        ├── say    ──▶ output
-        ├── return ──▶ returnValue + isReturn
-        └── 其他   ──▶ Unknown command 警告
+        ├── say        ──▶ output
+        ├── return     ──▶ returnValue + isReturn
+        ├── scoreboard ──▶ 占位（跳过整行）
+        └── 其他       ──▶ Unknown command 警告
         │
         ▼
   ReturnState { returnValue, successFlag, isReturn, out, error, warn, info }
 ```
 
-因此，`craftsim` 目前只能验证 `say`/`return` 这类简单函数，还不能执行 `craftlang` + `craftlinker` 生成的完整程序。
+因此，`craftsim` 目前只能验证 `say`/`return` 这类简单函数；`scoreboard` 已接入但子命令仍是占位，`execute`/`function`/`data` 仍不能执行，所以还不能运行 `craftlang` + `craftlinker` 生成的完整程序。
 
 ## 数据包运行时机制（Minecraft 侧）
 
@@ -81,14 +82,14 @@ example/test/
 
 ## craftsim 模拟器运行时
 
-- **数据模型**：`storage.hpp` 定义 13 种 NBT 标签、`NBT`/`NBT_List`、路径 AST（`PathNode`：Key/Index/Wildcard/Filter）、`NbtPathEvaluator`、`Storage` 与 `Scoreboard`。当前命令层尚未读写这些状态。
+- **数据模型**：`storage.hpp` 定义 13 种 NBT 标签、`NBT`/`NBT_List`、路径 AST（`PathNode`：Key/Index/Wildcard/Filter）、`NbtPathEvaluator`、`Storage` 与 `Scoreboard`。当前 `scoreboard` handler 仍是占位，命令层尚未读写这些状态。
 - **数据包加载**：`loadDatapack` 读取 `pack.mcmeta`，扫描 `data/<namespace>/function/*.mcfunction`，把函数内容放进 `function_map[namespace][name]`；不解析 tags/`load.json`。
 - **宏展开**：`dueWithFunction` 以“行首（第 0 列）`$` 且包含 `$(`”的行判定是否需要展开；没有这类行时原样返回，不要求 `source`；一旦需要展开，所有行首 `$` 行都会去掉 `$` 并替换其中的 `$(key)`。有宏但没给 `source` 时报 `Function has macros but no source provided.`；`source` 不在 storage 时报 `Source not found.`；给了 `path` 时取第一个匹配的 Compound，否则把根节点当 Compound；宏值只接受 String/Byte/Short/Int/Long/Float/Double，List/Compound/数组/End 跳过；未知 key 保留 `$(key)` 原样。
 - **分词器**：`initTokenizeContext`/`tokenize` 支持 `TOKENIZE_NORMAL` 与 `TOKENIZE_LINE`；CRLF 只产生一个换行 token；token 类型为 `TOK_WORD`/`TOK_STRING`/`TOK_NEWLINE`/`TOK_END`/`TOK_ERROR`。
-- **执行循环**：`executeFunction` 先做宏展开，再逐 token 查 `commandToFunction` 分发表；handler 负责消费当前行并把 token 停在 `TOK_NEWLINE`/`TOK_END`；输出按 `out`/`error`/`warn`/`info` 聚合，遇到 `isReturn` 立即返回；未知命令输出 `Unknown command: <cmd>,position: row:col` 并跳到行尾。
+- **执行循环**：`executeFunction` 先做宏展开，再逐 token 查 `commandToFunction` 分发表；handler 负责消费当前行并把 token 停在 `TOK_NEWLINE`/`TOK_END`；输出中 `out` 是字符串，`error`/`warn`/`info` 是 `LogEntry{position, message}` 列表，遇到 `isReturn` 立即返回；未知命令记录为 `Unknown command: <cmd>` 并跳到行尾，`main.cpp` 按 `Error/Warn/Info: (row:col) message` 打印。
 - **已实现命令**：`say` 用 `TOKENIZE_LINE` 捕获整行剩余文本（保留引号），空消息报错，成功时写入 `out` 与 `info`；`return` 接受一个纯整数字面量，缺参/多参报错，成功时写入 `returnValue`、置 `isReturn`，并通过 `info` 记录位置。
-- **占位命令**：`scoreboard`、`execute`、`function`、`data` 已在分发表中注册，但 handler 为 `nullptr`，执行时会走未知命令分支。这意味着 `craftsim` 还不能跟随函数调用、执行条件/存储操作，也就不能完整运行编译产物。
-- **返回状态**：`ReturnState` 的 `returnValue` 是返回值（无 return 时为 0），`successFlag` 表示当前命令是否成功，`isReturn` 表示是否因 return 停止，`out`/`error`/`warn`/`info` 是聚合后的输出流。
+- **占位命令**：`scoreboard` 已注册 `runScoreboard`，但 `objectives`/`players` 子命令目前只消费整行，尚未实现实际语义；`execute`、`function`、`data` 的 handler 仍为 `nullptr`。这意味着 `craftsim` 还不能跟随函数调用、执行条件/存储操作，也就不能完整运行编译产物。
+- **返回状态**：`ReturnState` 的 `returnValue` 是返回值（无 return 时为 0），`successFlag` 表示当前命令是否成功，`isReturn` 表示是否因 return 停止，`out` 是字符串输出，`error`/`warn`/`info` 是带位置信息的 `LogEntry` 列表。
 
 ## 当前进度
 
@@ -129,7 +130,7 @@ example/test/
 - 宏展开 `dueWithFunction`：纯字符串变换，不执行指令
 - `loadDatapack`：读取 `pack.mcmeta` 与 `data/<namespace>/function` 下的函数内容
 - `executeFunction`：宏展开 → 分词 → 命令分派 → 聚合输出/错误/警告/信息，遇 return 停止
-- 命令分发表：`say`、`return` 已实现；`scoreboard`、`execute`、`function`、`data` 为 `nullptr` 占位
+- 命令分发表：`say`、`return` 已实现；`scoreboard` handler 已注册但子命令占位；`execute`、`function`、`data` 为 `nullptr` 占位
 - `runSay`：行模式捕获整行文本，空消息报错；`runReturn`：只接受一个纯整数字面量，缺参/多参报错
 - `main.cpp` 固定加载 `example/test` 并执行 `test:test`，用于联调
 
@@ -137,7 +138,7 @@ example/test/
 
 - `while` / `do-while` / `for` 循环（编译时抛 `unsupported cursor: ...`）
 - 除 `int` 外的类型（浮点、字符、数组、结构体、指针均报 `unsupported type`）
-- `craftsim` 的 `scoreboard` / `execute` / `function` / `data` 命令；storage/scoreboard 的实际读写；函数调用与宏参数传递
+- `craftsim` 的 `scoreboard` 子命令语义、`execute` / `function` / `data` 命令；storage/scoreboard 的实际读写；函数调用与宏参数传递
 - `craftsim` 的单步调试器
 - 递归的运行时实测（机制已就绪）
 - V2.0 的受限指针、变长数组、循环展开、混合构建；V3.0~V6.0 全部规划
@@ -245,7 +246,7 @@ build\craftlinker.exe example\setting.json
 build\craftsim.exe
 ```
 
-当前 `main.cpp` 固定加载 `example/test` 并执行 `test:test`，只实现 `say` 和 `return`。`scoreboard`、`execute`、`function`、`data` 会输出 `Unknown command: ...` 警告并跳过该行，因此还不能直接运行 `craftlinker` 产出的数据包。运行目录需要在仓库根目录，因为数据包路径是相对路径。
+当前 `main.cpp` 固定加载 `example/test` 并执行 `test:test`。`say`、`return` 可用；`scoreboard` 已注册 handler，但 `objectives` / `players` 子命令仍是占位，只跳过整行；`execute`、`function`、`data` 仍输出 `Unknown command: ...` 并跳过该行。因此还不能直接运行 `craftlinker` 产出的数据包。运行目录需要在仓库根目录，因为数据包路径是相对路径。
 
 ## 配置（链接器 setting.json）
 
@@ -294,8 +295,8 @@ build/craftlang/craftlang/
 4. **int 函数的空 `return`**：`return;` 不会写 `return` objective，也不会设置 `interrupted`，函数会继续执行到末尾；应写 `return <expr>;`。
 5. **任何 libclang 诊断都会终止编译**：`diagCount > 0` 即抛 `parse error`（警告也算），源码需保证零警告。
 6. **编号不保证稳定**：编译单元内按函数/全局变量首次出现编号；链接器按 `linkFile` 顺序和符号表数组顺序重新分配最终编号，而符号表数组由 `unordered_map` 生成，顺序不保证可移植。重排函数会改变中间文件名和占位符，但链接器按符号名映射，链接结果仍然正确。
-7. **craftsim 只实现两个命令**：`say`、`return`；`scoreboard`、`execute`、`function`、`data` 在分发表中为 `nullptr`，执行时输出 `Unknown command` 并跳到行尾。因此它还不能完整执行编译器产出的程序。
-8. **craftsim 状态与调试能力有限**：`Storage`/`Scoreboard`/NBT 路径求值器已实现，但当前没有命令读写它们；没有 `data` 命令；`main.cpp` 固定 `example/test` 和 `test:test`，没有命令行参数或单步调试；宏展开只处理行首（第 0 列）`$` 行。
+7. **craftsim 只实现两个命令**：`say`、`return`；`scoreboard` 的 handler 已注册，但 `objectives` / `players` 子命令仍只消费整行、不执行语义；`execute`、`function`、`data` 在分发表中为 `nullptr`，执行时输出 `Unknown command` 并跳到行尾。因此它还不能完整执行编译器产出的程序。
+8. **craftsim 状态与调试能力有限**：`Storage`/`Scoreboard`/NBT 路径求值器已实现，但 `scoreboard` 占位 handler 和现有命令都还没有读写它们；没有 `data` 命令；`main.cpp` 固定 `example/test` 和 `test:test`，没有命令行参数或单步调试；宏展开只处理行首（第 0 列）`$` 行。
 9. **`return`/`say` 参数限制**：`return` 只接受一个纯整数字面量（可带正负号），不接受表达式或计分板读取；`say` 原样捕获整行剩余文本，不解析 JSON 文本组件、选择器或转义。
 10. **`dueWithFunction` 的宏展开规则**：见“craftsim 模拟器运行时”；List/Compound/数组/End 不能作为宏值，未知 key 保留 `$(key)`。
 
