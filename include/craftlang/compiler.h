@@ -66,9 +66,9 @@ namespace craftlang
     extern const std::vector<CXCursorKind> exprStatementKinds;
 
     std::string addDollarPrefix(const std::string &text);
-    std::string initVar(std::string name, CXTypeKind type);
-    std::string setVarToVar(std::string name, std::string value, CXTypeKind type);
-    std::string setConstToVar(std::string name, std::string value, CXTypeKind type);
+    std::string initVar(const std::string &name, CXTypeKind type);
+    std::string setVarToVar(const std::string &name, const std::string &value, CXTypeKind type);
+    std::string setConstToVar(const std::string &name, const std::string &value, CXTypeKind type);
     ExprResult start_deal_expr(CXCursor expr);
     ExprResult deal_expr(CXCursor expr);
     LValue deal_lvalue(CXCursor lvalue);

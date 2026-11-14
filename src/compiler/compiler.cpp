@@ -80,14 +80,14 @@ namespace craftlang
             if (!first)
                 result += "\n";
             first = false;
-            if (line.find("$") != std::string::npos)
+            if (line.find('$') != std::string::npos)
                 result += "$";
             result += line;
         }
         return result;
     }
 
-    std::string initVar(std::string name, CXTypeKind type)
+    std::string initVar(const std::string &name, CXTypeKind type)
     {
         std::string init = "";
         switch (type)
@@ -107,7 +107,7 @@ namespace craftlang
         return init;
     }
 
-    std::string setVarToVar(std::string name, std::string value, CXTypeKind type)
+    std::string setVarToVar(const std::string &name, const std::string &value, CXTypeKind type)
     {
         std::string set = "";
         switch (type)
@@ -125,7 +125,7 @@ namespace craftlang
         }
         return set;
     }
-    std::string setConstToVar(std::string name, std::string value, CXTypeKind type)
+    std::string setConstToVar(const std::string &name, const std::string &value, CXTypeKind type)
     {
         std::string set = "";
         switch (type)
@@ -144,7 +144,7 @@ namespace craftlang
         return set;
     }
 
-    static Var find_local_var(std::string name)
+    static Var find_local_var(const std::string &name)
     {
         for (int i = (int)localVarsToInt.size() - 1; i >= 0; --i)
         {
@@ -158,7 +158,7 @@ namespace craftlang
         return Var{"", "", CXType{}, -1, false};
     }
 
-    static Var find_var(std::string name)
+    static Var find_var(const std::string &name)
     {
         Var itl = find_local_var(name);
         if (itl.number != -1)
@@ -512,7 +512,7 @@ namespace craftlang
         {
             CXString name = clang_getCursorSpelling(cursor);
             std::string inside_name = clang_getCString(name);
-            CXCursor CompoundStmt = {};
+            CXCursor CompoundStmt = clang_getNullCursor();
             std::vector<Parm> parms = {};
             std::vector<CXCursor> children = getChildCursors(cursor);
             localVarCounter = 0;

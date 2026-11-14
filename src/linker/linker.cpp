@@ -178,7 +178,6 @@ namespace craftlinker
                 if (!entry.is_regular_file())
                     continue; // 跳过目录
 
-                std::string otherName = entry.path().stem().string();
                 std::ifstream otherStream(entry.path());
                 if (!otherStream)
                 {

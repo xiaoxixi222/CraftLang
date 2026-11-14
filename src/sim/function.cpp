@@ -198,12 +198,18 @@ namespace craftsim
                     }
                     else
                     {
+                        if (!start.has_value())
+                        {
+                            token.tokentype = TOK_ERROR;
+                            return;
+                        }
                         end = context.pos;
                         context.pos.second++;
-                        token.start = start.value();
+                        const auto startPos = start.value();
+                        token.start = startPos;
                         token.end = end.value();
                         token.tokentype = TOK_STRING;
-                        int startLocation = context.rowStarts[start.value().first] + start.value().second;
+                        int startLocation = context.rowStarts[startPos.first] + startPos.second;
                         token.string = function.substr(startLocation, location + 1 - startLocation);
                         return;
                     }
@@ -276,8 +282,8 @@ namespace craftsim
         case TOKENIZE_LINE:
         {
             std::string_view &function = context.function;
-            size_t location = static_cast<size_t>(context.rowStarts[context.pos.first] +
-                                                  context.pos.second);
+            size_t location = static_cast<size_t>(context.rowStarts[context.pos.first]) +
+                              static_cast<size_t>(context.pos.second);
             if (location >= function.size())
             {
                 token.start = context.pos;
@@ -445,10 +451,14 @@ namespace craftsim
             if (it != commandToFunction.end() && it->second != nullptr)
             {
                 auto ret = it->second(token, context);
-                warn = ret.warn = warn + ret.warn;
-                info = ret.info = info + ret.info;
-                error = ret.error = error + ret.error;
-                output = ret.out = output + ret.out;
+                warn += ret.warn;
+                ret.warn = warn;
+                info += ret.info;
+                ret.info = info;
+                error += ret.error;
+                ret.error = error;
+                output += ret.out;
+                ret.out = output;
                 if (ret.isReturn)
                 {
                     return ret;

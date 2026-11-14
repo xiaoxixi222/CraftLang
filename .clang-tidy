@@ -1,0 +1,31 @@
+---
+# CraftLang clang-tidy configuration.
+#
+# The goal is a Ruff-like, high-signal lint pass:
+# - compiler diagnostics
+# - clang static analyzer
+# - bugprone checks
+# - performance checks
+# - portability checks
+#
+# Style-only checks that would rewrite most of the existing codebase are
+# intentionally disabled. Add them gradually after the baseline is clean.
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -bugprone-throwing-static-initialization,
+  performance-*,
+  -performance-enum-size,
+  -performance-avoid-endl,
+  portability-*,
+  -portability-avoid-pragma-once
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[\\/](src|include)[\\/].*'
+ExcludeHeaderFilterRegex: '.*[\\/](third_party|llvm-mingw|LLVM)[\\/].*'
+FormatStyle: none
+SystemHeaders: false
