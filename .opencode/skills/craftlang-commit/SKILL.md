@@ -21,6 +21,7 @@ description: 在 CraftLang 仓库执行提交前检查、生成提交信息并�
 - 不执行交互式命令（不带 `-m` / `-F` 的 `git commit`、`rebase -i` 等），避免卡住。
 - 不 amend、不 rebase 已经 push 的提交，除非用户明确要求。
 - 如果 commit 成功但 push 失败，保留本地 commit，报告错误；不要 reset、不要删除提交。
+- **文档同步属于提交内容。** 每次提交前对照 diff 检查 `README.md` 和 `design.md`：行为、CLI、配置格式、已知限制或模块设计有变化时必须同步更新，并随代码一起提交；确认无需更新时，在最终报告中写明“文档无需更新”及理由。
 
 ## 一、确认当前状态
 
@@ -261,7 +262,7 @@ type(scope): 中文摘要
 - 标题不超过约 72 个字符。
 - 正文说明“做了什么、为什么”，不要逐行复述 diff。
 - **只写实际跑过的验证。** 没跑的行为不能写成已通过。
-- 行为、CLI、已知限制变化时，同步更新 `README.md` / `design.md`。
+- 行为、CLI、已知限制变化时，同步更新 `README.md` / `design.md`（见硬性规则）。
 - 破坏性改动加：
 
 ```text
@@ -389,6 +390,7 @@ git log -1 --oneline
 - 构建：cmake --build build --target all -j 12 通过
 - 行为：<实际运行的测试> 通过
 - Lint：tools/lint.ps1 通过（N 个文件）/ 用户要求跳过
+- 文档：README.md / design.md 已同步更新 / 无需更新（<理由>）
 - Warning：无新增 / 说明已有 warning
 ```
 

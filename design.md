@@ -15,45 +15,54 @@
 - 目标平台：Minecraft Java Edition 1.20.5+
 - 核心机制：计分板（scoreboard）、存储（storage）、宏函数（`/function ... with`）
 
+### 当前实现状态（2026-11）
+
+- **V1.0**：已达成（2026-08），游戏内实测通过。
+- **V2.0**：部分完成。`if/else` 已实现；`while`/`for` 循环、受限指针、变长数组、混合构建尚未开始。
+- **V3.0~V6.0**：未开始。
+- 递归机制（`functionSpace` 深度计数）已就绪，但尚未实测。
+- 具体命名、调用约定和当前限制以 `README.md` 为准；本文保留版本规划与设计意图。
+
 ---
 
 ## 版本演进计划
 
 ### V1.0 — 纯整数运算与函数调用（预计 500-800 行核心 C++）
-**状态**：✅ 已达成（2026-08），游戏内实测通过；符号表输出已完成（JSON 注释嵌入各 mcfunction）。
+**状态**：✅ 已达成（2026-08），游戏内实测通过；符号表输出已完成（独立 `<文件名>_symbols.json`）。
 **核心目标**：跑通从 C 源码到可执行数据包的完整流程，验证内存模型和宏栈帧机制。
 
 #### 特性
 - **数据类型**：仅 `int`，映射为计分板虚拟玩家分值。
-- **表达式**：整数四则运算、取模、括号、单目负号。
+- **表达式**：整数四则运算、取模、括号、单目正负号。
 - **变量管理**：
-  - 全局变量：固定命名 `$global_xxx`
-  - 局部变量：`$fn$(stack)_xxx`，通过宏替换展开，实现基于栈帧的动态寻址。
+  - 全局变量：固定命名 `0_.g.N.g.`（N 为编译单元内编号，链接器统一重映射）。
+  - 局部变量：`$(functionSpace)_N`，通过宏替换展开，实现基于栈帧的动态寻址；表达式临时量命名为 `$(functionSpace)_tmp_N`。
 - **函数调用与递归**：
-  - 全局栈指针 `stack_ptr`，调用时递增，返回时递减。
-  - 使用 `/function ... with {stack: $(stack_ptr)}` 传递栈帧号。
-  - 全局计分板 `return` 传递返回值。
+  - 全局栈指针 `functionSpace`，调用前自增、返回后自减。
+  - 参数写入 `storage <name> <i>`，栈帧号写入 `storage <name> functionSpace`，再用 `function <name>:<f> with storage <name>` 调用；被调方通过 `$(i)` 读取参数、通过 `$(functionSpace)` 寻址栈帧。
+  - 全局计分板 objective `return` 传递返回值。
   - 支持递归调用，每次调用分配独立栈帧。
-  - ⚠️ 实现说明：递归机制已随 `functionSpace` 深度计数就绪，但**尚未实测**（V1.0 无控制流，无法写出跳出的递归用例），留待 V2.0 引入 `if` 后验证。
-- **临时变量**：函数内计数器法分配，命名 `$fn$(stack)_tmpN`，遵循 LIFO 自动释放。
-- **语句**：表达式语句、`return` 语句、复合语句（顺序执行）。
+  - ⚠️ 实现说明：递归机制已随 `functionSpace` 深度计数就绪，但**尚未实测**；`if/else` 已实现，仍缺少循环等可写出稳定跳出条件的用例。
+- **临时变量**：函数内计数器法分配，命名 `$(functionSpace)_tmp_N`，遵循 LIFO 自动释放。
+- **语句**：表达式语句、`return` 语句、复合语句、`if/else`（V2.0 控制流的一部分，已提前实现）。
 - **基础调试支持**：
-  - 编译时输出符号对应表（变量名、函数名与计分板玩家名的映射关系）。
+  - 编译时输出符号对应表（全局变量/函数名与编号、`isExtern`）。
   - 内建函数 `print_int`，利用 `storage` 中转和宏参数，在聊天栏打印整数。
 
 #### 不包含
-控制流、数组、指针、浮点、字符串、世界交互。
+数组、指针、浮点、字符串、世界交互；`while`/`for` 循环也未实现（`if/else` 已提前支持）。
 
 ---
 
 ### V2.0 — 控制流、受限指针与混合构建（预计 +800 行核心 C++）
+**状态**：🚧 部分完成（2026-11）：`if/else` 已实现；`while`/`for`、受限指针、变长数组、混合构建未开始。
 **核心目标**：支持结构化控制流、受限指针、变长数组，并实现与手写 mcfunction 的互操作。
 
 #### 特性
 - **控制流**：
-  - `if`/`else`：编译为独立函数，用 `execute if/unless score` 实现条件跳转。
+  - `if`/`else`：编译为独立分支函数，用 `ifFlag` 决定 then/else，分支通过 storage 继承父函数的 `functionSpace`。
   - `while`/`for`：编译为尾递归函数，在函数末尾根据条件决定是否继续递归。
-  - 所有控制流子块接收相同的 `stack` 宏参数，共享父函数的局部变量。
+  - 所有控制流子块通过 `storage` 继承父函数的 `functionSpace`，共享父函数的局部变量。
 - **受限指针**：
   - 兼容标准 C 的 `*` 和 `&` 语法，不引入新关键字。
   - 指针变量底层为 `int`，存储目标变量的编号。
@@ -62,10 +71,10 @@
 - **变长数组**：
   - 支持定长和变长数组语法，底层处理完全统一。
   - 数组声明中的长度采用“提示性语义”（君子协议），编译器不分配空间、不检查边界。
-  - 元素访问 `arr[i]` 通过宏展开为 `$fn$(stack)_base_i` 动态寻址，越界由 Minecraft 静默处理。
+  - 元素访问 `arr[i]` 通过宏展开为 `$(functionSpace)_base_i` 动态寻址，越界由 Minecraft 静默处理。
 - **混合构建与互操作**：
   - 通过命名空间隔离（如 `compiled:` 与 `custom:`）避免冲突。
-  - 定义公共参数槽位（如 `$param0`, `$param1`, `$return_val`）作为调用约定。
+  - 定义公共参数槽位（如 storage 的数字键、`return` objective）作为调用约定。
   - C 代码调用手写函数时，编译器自动插入参数拷贝指令；反之亦然。
 - **循环展开优化**（V2.5 可选）：
   - 特殊格式注释 `// @max_iter N` 提示最大循环次数。
@@ -144,19 +153,27 @@
 ---
 
 ## sim
-从 build\craftlang\...\function\*.mcfunction 提取的全部发射命令（封闭子集，13 种 + 宏规则）：
-#	命令	语义要点
-1	scoreboard objectives add/remove <obj> dummy	记分项创建/删除
-2	scoreboard players set/add/remove <e> <obj> <int>	实体恒为 craftlang（单一假玩家）
-3	scoreboard players operation <e> <o> <op> <e2> <o2>	op 全集：= += -= *= /= %=
-4	execute if score ... <cmp> ... run <cmd>	cmp 全集：= != > >= < <=
-5	execute if/unless score ... matches <range> run <cmd>	range：N / N..M / ..M / N..
-6	execute store result storage <ns> <key> int <scale> run scoreboard players get ...	storage 只存 int
-7	function <ns>:<path> with storage <ns>	调用 = 绑定宏快照 + 压栈
-8	return <int>	中止当前函数帧（返回值无人读取，弹栈即可）
-9	say <text>	print_int = $say $(0)，捕获此行即测试输出
-10	$-宏行	文本替换 $(key) 后按上面 1-9 执行
+
+### 设计目标
+
+从 `build\craftlang\...\function\*.mcfunction` 提取的全部发射命令（封闭子集，9 类命令 + 宏规则）：
+
+| # | 命令 | 语义要点 | 当前 craftsim |
+|---|------|----------|---------------|
+| 1 | `scoreboard objectives add <obj> dummy` / `remove <obj>` | 记分项创建/删除 | 未实现 |
+| 2 | `scoreboard players set/add/remove <e> <obj> <int>` | 实体恒为 craftlang（单一假玩家） | 未实现 |
+| 3 | `scoreboard players operation <e> <o> <op> <e2> <o2>` | op 全集：`=` `+=` `-=` `*=` `/=` `%=` | 未实现 |
+| 4 | `execute if/unless score ... <cmp> ... run <cmd>` | cmp：`=` `>` `>=` `<` `<=`；`!=` 用 `unless =` 实现 | 未实现 |
+| 5 | `execute if/unless score ... matches <range> run <cmd>` | range：`N` / `N..M` / `..M` / `N..` | 未实现 |
+| 6 | `execute store result storage <ns> <key> int <scale> run scoreboard players get ...` | storage 只存 int | 未实现 |
+| 7 | `function <ns>:<path> with storage <ns>` | 调用 = 绑定宏快照 + 压栈 | 未实现 |
+| 8 | `return <int>` | 中止当前函数帧 | 已实现（仅纯整数字面量） |
+| 9 | `say <text>` | `print_int = $say $(0)`，捕获此行即测试输出 | 已实现（行模式捕获整行） |
+| 10 | `$-宏行` | 文本替换 `$(key)` 后按上面 1-9 执行 | 已实现 `dueWithFunction`，仅行首 `$` |
+
+当前 `craftsim` 的命令分发表中，`scoreboard`、`execute`、`function`、`data` 仍是 `nullptr`；`data` 尚未列入上面的编译器发射子集。
+
 ---
 
 ## 结语
-本编译器架构经过从临时变量分配、表达式求值策略到完整六阶段演进的深入推演，充分利用了 Minecraft 1.20.5+ 的宏、计分板和 storage 机制，实现了高度自洽的 C 语言到数据包的编译方案。设计上遵循不扩展 C 语法、信任目标平台、零成本抽象等原则，将平台限制转化为创新契机。项目采用渐进式交付，每个版本独立可测，降低了单人开发的难度与风险。至此，架构设计已基本完整，可以进入 V1.0 的实现阶段。
+本编译器架构经过从临时变量分配、表达式求值策略到完整六阶段演进的深入推演，充分利用了 Minecraft 1.20.5+ 的宏、计分板和 storage 机制，实现了高度自洽的 C 语言到数据包的编译方案。设计上遵循不扩展 C 语法、信任目标平台、零成本抽象等原则，将平台限制转化为创新契机。项目采用渐进式交付，每个版本独立可测，降低了单人开发的难度与风险。至此，架构设计已基本完整；V1.0 已实现，当前处于 V2.0 的部分实现阶段。

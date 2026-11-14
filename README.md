@@ -4,107 +4,190 @@
 
 | 程序 | 作用 | 状态 |
 |---|---|---|
-| `craftlang` | 编译器：libclang 解析源码，生成 `.mcfunction` 与符号表 JSON | 基本可用 |
+| `craftlang` | 编译器：libclang 解析源码，生成 `.mcfunction` 与符号表 JSON | 基本可用（仅 int；支持 if/else，无循环） |
 | `craftlinker` | 链接器：合并多个编译单元的符号表、统一编号、产出完整数据包 | 基本可用 |
-| `craftsim` | 执行模拟器：读取数据包、展开宏函数、模拟执行 | 开发中 |
+| `craftsim` | 执行模拟器：读取数据包、展开宏函数、逐条解释 mcfunction | 部分可用（仅 `say`/`return`） |
 
-前端基于 **libclang** 解析源码生成 AST，后端用 C++ 生成计分板（scoreboard）、存储（storage）与宏函数（`/function ... with`）形式的 mcfunction。架构与 V1.0~V6.0 版本规划见 `design.md`。
+前端基于 **libclang** 解析源码生成 AST，后端用 C++ 直接生成计分板（scoreboard）、存储（storage）与宏函数（`/function ... with`）形式的 mcfunction。架构与 V1.0~V6.0 版本规划见 `design.md`；当前实现状态以本文为准。
 
 ## 工作流程
 
+### 目标链路（Minecraft 实际运行）
+
 ```
-test.c ──craftlang──▶ build/test_o/function/*.mcfunction
-                      build/test_symbols.json        （每个源文件各产出一份）
+test.c ──craftlang──▶ build/test_o/function/
+                        ├── start.mcfunction          全局变量初始化
+                        ├── .f.N.f..mcfunction        函数体
+                        └── .f.N.f._M.mcfunction      if/else 分支体
+                      build/test_symbols.json          每个源文件各一份
                           │
                           ▼
-        ──craftlinker──▶ build/<name>/<name>/pack.mcmeta
-                         build/<name>/<name>/data/<name>/function/*.mcfunction
-                         build/<name>/<name>/data/minecraft/tags/function/load.json
+        ──craftlinker──▶ build/<name>/<name>/
+                          ├── pack.mcmeta
+                          ├── data/<name>/function/
+                          │   ├── start.mcfunction    运行时初始化 + 各单元 start + 调用 main
+                          │   ├── <N>.mcfunction
+                          │   └── <N>_<M>.mcfunction
+                          └── data/minecraft/tags/function/load.json
                           │
                           ▼
-        ──craftsim────▶ 模拟执行（开发中）
+                     Minecraft /function 宏机制执行
 ```
 
 编译阶段不决定最终编号，只在文件内留下占位符（`.f.N.f.` 函数、`.g.N.g.` 全局变量、`..name..` 数据包名），由链接器统一替换成跨文件的最终编号。
 
-## 运行时机制
+链接器分两遍：
 
-- **计分板 = 变量**：每个 int 变量对应一个计分板 objective，玩家名固定为数据包名。
-- **调用 = 宏函数 + storage 传参**：调用方 `execute store result storage <name> 0 int 1 ...` 写入第 N 个参数，再 `function <name>:<f> with storage <name>`，被调方用 `$(0)`、`$(1)` 读取。
-- **栈帧 = `functionSpace` 计分板**：局部变量命名 `$(functionSpace)_tmp_0`，调用前 `functionSpace` 自增、返回后自减，实现动态栈帧寻址。
-- **控制流 = `ifFlag` / `interrupted` 中断协议**：`if/else` 拆成子函数，用 `ifFlag` 决定跳转；`return` 置 `interrupted = 2` 并 `return 0` 逐层退出。
-- **宏展开 = `dueWithFunction`**：见已知限制 7。
+1. 读取所有 `_symbols.json`，按符号名收集函数/全局变量，按首次出现分配编号，记录 `extern` 与定义状态；
+2. 校验未定义的 `extern`，逐文件替换占位符，合并各单元的 `start.mcfunction`，拷贝 `other/` 资源，最后生成 `pack.mcmeta` 与最终 `start.mcfunction`。
+
+### 当前 craftsim 联调链路
+
+`craftsim` 还没有接到链接器产物上，当前入口固定读取手写数据包 `example/test`：
+
+```
+example/test/
+  pack.mcmeta
+  data/test/function/test.mcfunction
+        │
+        ▼
+  loadDatapack ──▶ function_map[namespace][function]
+        │
+        ▼
+  dueWithFunction ──▶ 宏展开后的文本
+        │
+        ▼
+  tokenize ──▶ executeFunction 命令分派
+        │
+        ├── say    ──▶ output
+        ├── return ──▶ returnValue + isReturn
+        └── 其他   ──▶ Unknown command 警告
+        │
+        ▼
+  ReturnState { returnValue, successFlag, isReturn, out, error, warn, info }
+```
+
+因此，`craftsim` 目前只能验证 `say`/`return` 这类简单函数，还不能执行 `craftlang` + `craftlinker` 生成的完整程序。
+
+## 数据包运行时机制（Minecraft 侧）
+
+- **计分板 = 变量**：每个变量对应一个 objective，objective 名就是变量名；所有分数都挂在“数据包名”这个假玩家上。全局变量在编译单元内命名为 `0_.g.N.g.`（链接后为 `0_<最终编号>`），函数局部变量命名为 `$(functionSpace)_N`，表达式临时量命名为 `$(functionSpace)_tmp_N`。
+- **运行时 objective**：`start.mcfunction` 创建 `functionSpace`、`tmp`、`ifFlag`、`interrupted`，并把 `functionSpace` 设为 1、`interrupted` 设为 0。比较运算还会使用 `tmp` 作为临时槽，单目负号使用 `const-1`。
+- **调用 = 宏函数 + storage 传参**：调用方先把第 i 个参数写入 `storage <name> <i>`（`execute store result storage ... int 1`），再把当前 `functionSpace` 写入 `storage <name> functionSpace`，最后执行 `function <name>:<f> with storage <name>`；被调方通过 `$(0)`、`$(1)` 读取参数，通过 `$(functionSpace)` 寻址自己的栈帧。
+- **栈帧 = `functionSpace`**：调用前 `functionSpace` 自增，调用后自减；每次调用都有独立的局部变量/临时量 objective。函数入口会用 `initVar` 重新创建参数 objective，并从 `$(i)` 初始化。
+- **控制流 = `ifFlag` + 分支函数**：`if/else` 的 then/else 体会编译成独立的 `.f.<父函数>.f._<序号>` 文件。调用方先把 `ifFlag` 置 0，执行 then 分支；then 分支正常结束时把 `ifFlag` 置 1；随后仅当 `ifFlag == 0` 时执行 else 分支。分支函数通过 storage 继承父函数的 `functionSpace`。
+- **return = `interrupted` 协议**：`return <expr>` 把结果写入 `return` objective，置 `interrupted = 2` 并 `return 0` 退出当前 mcfunction。if/else 子函数返回后，父函数检查 `interrupted`，非 0 时继续 `return 0` 向上退出；普通函数调用点会在调用后把 `interrupted = 2` 清零，因此被调函数 return 不会错误地退出调用者。当前只使用 0（正常）和 2（return），1/3 保留。
+- **宏行与占位符**：编译器用 `addDollarPrefix` 给所有含 `$` 的行加行首 `$`，让 Minecraft 把这些行当作宏行；链接器负责把 `.f.N.f.`、`.g.N.g.`、`..name..` 替换成最终名字。真正的宏展开由 Minecraft 的 `/function ... with storage` 完成。
+
+## craftsim 模拟器运行时
+
+- **数据模型**：`storage.hpp` 定义 13 种 NBT 标签、`NBT`/`NBT_List`、路径 AST（`PathNode`：Key/Index/Wildcard/Filter）、`NbtPathEvaluator`、`Storage` 与 `Scoreboard`。当前命令层尚未读写这些状态。
+- **数据包加载**：`loadDatapack` 读取 `pack.mcmeta`，扫描 `data/<namespace>/function/*.mcfunction`，把函数内容放进 `function_map[namespace][name]`；不解析 tags/`load.json`。
+- **宏展开**：`dueWithFunction` 以“行首（第 0 列）`$` 且包含 `$(`”的行判定是否需要展开；没有这类行时原样返回，不要求 `source`；一旦需要展开，所有行首 `$` 行都会去掉 `$` 并替换其中的 `$(key)`。有宏但没给 `source` 时报 `Function has macros but no source provided.`；`source` 不在 storage 时报 `Source not found.`；给了 `path` 时取第一个匹配的 Compound，否则把根节点当 Compound；宏值只接受 String/Byte/Short/Int/Long/Float/Double，List/Compound/数组/End 跳过；未知 key 保留 `$(key)` 原样。
+- **分词器**：`initTokenizeContext`/`tokenize` 支持 `TOKENIZE_NORMAL` 与 `TOKENIZE_LINE`；CRLF 只产生一个换行 token；token 类型为 `TOK_WORD`/`TOK_STRING`/`TOK_NEWLINE`/`TOK_END`/`TOK_ERROR`。
+- **执行循环**：`executeFunction` 先做宏展开，再逐 token 查 `commandToFunction` 分发表；handler 负责消费当前行并把 token 停在 `TOK_NEWLINE`/`TOK_END`；输出按 `out`/`error`/`warn`/`info` 聚合，遇到 `isReturn` 立即返回；未知命令输出 `Unknown command: <cmd>,position: row:col` 并跳到行尾。
+- **已实现命令**：`say` 用 `TOKENIZE_LINE` 捕获整行剩余文本（保留引号），空消息报错，成功时写入 `out` 与 `info`；`return` 接受一个纯整数字面量，缺参/多参报错，成功时写入 `returnValue`、置 `isReturn`，并通过 `info` 记录位置。
+- **占位命令**：`scoreboard`、`execute`、`function`、`data` 已在分发表中注册，但 handler 为 `nullptr`，执行时会走未知命令分支。这意味着 `craftsim` 还不能跟随函数调用、执行条件/存储操作，也就不能完整运行编译产物。
+- **返回状态**：`ReturnState` 的 `returnValue` 是返回值（无 return 时为 0），`successFlag` 表示当前命令是否成功，`isReturn` 表示是否因 return 停止，`out`/`error`/`warn`/`info` 是聚合后的输出流。
 
 ## 当前进度
+
+按 `design.md` 的版本划分：**V1.0 已达成；V2.0 仅完成 `if/else`，循环、受限指针、变长数组未开始；V3.0~V6.0 未开始。** 递归机制（`functionSpace` 深度计数）已就绪，但仍未实测。
 
 ### 已实现
 
 **编译器（`craftlang`）**
 
-- libclang 解析源码、AST 采集与递归打印（`lang.h`/`lang.cpp`）
+- libclang 解析源码、AST 采集与递归打印；任何 libclang 诊断（warning 也算）都会抛 `parse error`
+- 直接 AST → mcfunction 代码生成，没有中间 IR
 - 语句：函数定义/声明、`DeclStmt`、`ReturnStmt`、`if/else`、复合语句、表达式语句
-- 表达式：四则运算、取模、比较运算符、复合赋值（`+=` 等）、一元运算、函数调用、括号
-- 变量：全局变量、局部变量、块级作用域（同名变量按作用域链由内向外解析）
-- `extern` 声明采集，跨文件符号由链接器解决
-- 符号表输出 `<文件名>_symbols.json`（`Global` + `function` 两类，含 `isExtern`/`number`）
-- 内建函数保护：`print_int` 等若有函数体则报错终止编译
+- 表达式：整数字面量、变量引用、四则运算、取模、比较运算符、复合赋值（`+=` 等）、单目 `+`/`-`、函数调用、括号
+- 变量：全局变量、局部变量、块级作用域（同名变量按作用域链由内向外解析）、`extern` 声明
+- 输出：`<文件名>_o/function/start.mcfunction`（全局变量初始化）、`.f.N.f..mcfunction`（函数体）、`.f.N.f._M.mcfunction`（if/else 分支）、`<文件名>_symbols.json`
+- 符号表：`Global` + `function` 两类，含 `name`/`number`/`isExtern`
+- `mcstd.h` 提供 `print_int` 声明及 `bool`/`true`/`false` 宏；编译器不特殊拦截用户定义的同名函数
 
 **链接器（`craftlinker`）**
 
 - 读取 `setting.json`（数据包名、`pack_format`、描述、待链接文件、输出路径）
-- 符号收集与统一编号，`extern` 未找到定义时报错终止（`undefined extern function/global`）
-- `.f.N.f.` / `.g.N.g.` / `..name..` 占位符全局替换
-- 生成 `pack.mcmeta`、`start.mcfunction`、`data/minecraft/tags/function/load.json`
-- `other/` 目录资源（如 load.json）拷贝并替换占位符
+- 两遍处理：先收集符号并统一编号，再校验未定义 `extern`、替换占位符、写产物
+- 符号收集按 `linkFile` 顺序和符号表数组顺序首次出现分配编号；重复定义抛 `duplicate definition`
+- `.f.N.f.` / `.g.N.g.` / `..name..` 全局替换
+- 合并各编译单元的 `start.mcfunction`，生成 `pack.mcmeta` 与最终 `start.mcfunction`；拷贝 `other/` 下的 `load.json` 等资源
+- 按 `_symbols.json` 文件名推导同名 `_o` 目录（`test_symbols.json` → `test_o\`）
 
 **内建库（`mcstd/`）**
 
-- `print_int` 实现为 `$say $(0)`，含符号表与 `load.json`，随链接器一起接入
+- `print_int` 实现为 `$say $(0)`，含 `mcstd_symbols.json`、`mcstd_o/function/.f.0.f..mcfunction`、`mcstd_o/other/minecraft/tags/function/load.json`
+- `mcstd_o/function/start.mcfunction` 为空；链接时与其他单元一起合并
 
 **模拟器（`craftsim`）**
 
-- NBT 数据模型与 13 种标签类型、`Storage`/`Scoreboard`（`storage.hpp`/`storage.cpp`）
-- NBT 路径 AST（`PathNode`：Key/Index/Wildcard/Filter）与 `NbtPathEvaluator` 求值器
-- mcfunction 分词器：word/string/newline/end/error token（`function.cpp`）
-- 宏展开 `dueWithFunction`：纯字符串变换，不执行任何指令
-- `executeFunction` 骨架、`loadDatapack` 读取 `pack.mcmeta` 与目录列表
+- 13 种 NBT 标签、`NBT`/`NBT_List` 工厂与比较、`Storage`/`Scoreboard` 数据模型
+- NBT 路径 AST（Key/Index/Wildcard/Filter）与 `NbtPathEvaluator`（当前入口尚未使用）
+- mcfunction 分词器：普通模式 + 行模式、CRLF、word/string/newline/end/error token
+- 宏展开 `dueWithFunction`：纯字符串变换，不执行指令
+- `loadDatapack`：读取 `pack.mcmeta` 与 `data/<namespace>/function` 下的函数内容
+- `executeFunction`：宏展开 → 分词 → 命令分派 → 聚合输出/错误/警告/信息，遇 return 停止
+- 命令分发表：`say`、`return` 已实现；`scoreboard`、`execute`、`function`、`data` 为 `nullptr` 占位
+- `runSay`：行模式捕获整行文本，空消息报错；`runReturn`：只接受一个纯整数字面量，缺参/多参报错
+- `main.cpp` 固定加载 `example/test` 并执行 `test:test`，用于联调
 
 ### 尚未实现
 
-- `while` / `do-while` / `for` 循环（编译时抛 `unsupported cursor: WhileStmt`）
+- `while` / `do-while` / `for` 循环（编译时抛 `unsupported cursor: ...`）
 - 除 `int` 外的类型（浮点、字符、数组、结构体、指针均报 `unsupported type`）
-- craftsim 的实际指令执行与单步调试
+- `craftsim` 的 `scoreboard` / `execute` / `function` / `data` 命令；storage/scoreboard 的实际读写；函数调用与宏参数传递
+- `craftsim` 的单步调试器
+- 递归的运行时实测（机制已就绪）
+- V2.0 的受限指针、变长数组、循环展开、混合构建；V3.0~V6.0 全部规划
 
 ## 目录结构
 
 ```
+CMakeLists.txt                三个可执行目标的 CMake 配置
+.clang-tidy                   clang-tidy 检查配置
+tools/
+  lint.ps1                    对 src/ 运行 clang-tidy 的脚本
+.opencode/
+  skills/craftlang-commit/    仓库内提交检查流程（SKILL.md）
 include/
   craftlang/
     lang.h         AST 采集/遍历层：all_cursors、CursorHash、回调、递归打印
     compiler.h     代码生成层：Parm/Function/Var、compile()、表达式与语句处理
-    config.h       Config：name / pack_format / description / output_path
+    config.h       Config：name / file_name / output_path
   linker/
     linker.h       符号收集、占位符替换、link()
-    config.h       链接器配置：name / linkFile / outputPath
+    config.h       链接器配置：name / pack_format / description / linkFile / outputPath
   sim/
     sim.hpp        extern Storage/Scoreboard 全局实例声明
     storage.hpp    NBT 类型、NbtPath AST、NbtPathEvaluator、Storage、Scoreboard
-    function.hpp   Function 结构、分词器、dueWithFunction、executeFunction
+    function.hpp   Function/ReturnState、分词器、dueWithFunction、executeFunction、命令分发表
     datapack.hpp   function_map、loadDatapack
-  fsUtils.hpp      文件系统工具（读写、目录、复制重命名等）
-  mcstd.h          内建函数声明（print_int）
+  fsUtils.hpp      文件系统工具（读写、目录、复制重命名等，命名空间 craftsim::fs_utils）
+  mcstd.h          内建函数声明（print_int）与 bool/true/false 宏
 src/
   compiler/        lang.cpp、compiler.cpp、main.cpp
   linker/          linker.cpp、main.cpp
   sim/             storage.cpp、function.cpp、datapack.cpp、main.cpp
 mcstd/             预编译内建库：mcstd_symbols.json + mcstd_o/（function、other）
 example/
-  test*.c          示例源码（test、test2、test_scope、test_while、test_for）
+  test.c           基础示例（全局变量、extern、函数调用）
+  test2.c          跨文件 extern 示例
+  test_scope.c     块级作用域示例
+  test_while.c     循环目标示例（当前编译会报 unsupported cursor）
+  test_for.c       循环目标示例（当前编译会报 unsupported cursor）
   setting.json     链接器配置示例
-  test/            手写数据包示例（供 craftsim 读取）
+  test/            手写数据包示例（供 craftsim 读取；含 test/test2 两个命名空间）
 third_party/json/json.hpp   nlohmann/json 单头文件
 design.md          六阶段架构演进设计
+LICENSE            许可证
 ```
+
+## 工程工具
+
+- `tools/lint.ps1`：需要 PowerShell 7 和 `build/compile_commands.json`，对 `src/` 下的翻译单元运行 `clang-tidy`；默认 warning 视为错误，失败返回 1，不自动修复。
+- `.clang-tidy`：启用 `clang-diagnostic-*`、`clang-analyzer-*`、`bugprone-*`、`performance-*`、`portability-*`（少量规则关闭），关闭会大面积改写现有代码的风格类检查。
 
 ## 依赖与构建
 
@@ -143,10 +226,10 @@ build\craftlang.exe example\test_scope.c build
 
 运行后会：
 
-1. 用 libclang 解析源码并打印 AST（`_DEBUG` 编译时更详细）
-2. 若 libclang 有任何诊断即抛异常终止（见已知限制 4）
+1. 用 libclang 解析源码并打印 AST 摘要（`_DEBUG` 编译时额外打印遍历细节）
+2. 若 libclang 有任何诊断即抛异常终止（见已知限制 5）
 3. 清空并重建 `<输出目录>\<文件名>_o\function\`
-4. 生成 `<输出目录>\<文件名>_symbols.json`
+4. 生成 `<输出目录>\<文件名>_o\function\start.mcfunction`、函数文件与 `<输出目录>\<文件名>_symbols.json`
 
 ### 2. 链接成数据包
 
@@ -154,15 +237,15 @@ build\craftlang.exe example\test_scope.c build
 build\craftlinker.exe example\setting.json
 ```
 
-链接前需先编译 `setting.json` 的 `linkFile` 里列出的每个源文件，使对应 `_symbols.json` 与同名 `_o` 目录就位。
+链接前需先编译 `setting.json` 的 `linkFile` 里列出的每个源文件，使对应 `_symbols.json` 与同名 `_o` 目录就位。`mcstd_symbols.json` 对应的 `mcstd_o` 已随仓库提供，不需要额外编译。
 
-### 3. 模拟执行（开发中）
+### 3. 模拟执行（部分可用）
 
 ```powershell
 build\craftsim.exe
 ```
 
-目前 `main.cpp` 里硬编码了 `loadDatapack` + `executeFunction` 调用，仅用于联调。
+当前 `main.cpp` 固定加载 `example/test` 并执行 `test:test`，只实现 `say` 和 `return`。`scoreboard`、`execute`、`function`、`data` 会输出 `Unknown command: ...` 警告并跳过该行，因此还不能直接运行 `craftlinker` 产出的数据包。运行目录需要在仓库根目录，因为数据包路径是相对路径。
 
 ## 配置（链接器 setting.json）
 
@@ -181,7 +264,7 @@ build\craftsim.exe
 }
 ```
 
-链接器按每个 `_symbols.json` 的路径推导出同名 `_o` 目录（`test_symbols.json` → `test_o\`），把其中的 `.mcfunction` 重编号后写入 `<outputPath>\<name>\<name>\data\<name>\function\`。
+链接器按每个 `_symbols.json` 的路径推导出同名 `_o` 目录（`test_symbols.json` → `test_o\`），把其中的 `.mcfunction` 重编号后写入 `<outputPath>\<name>\<name>\data\<name>\function\`。`linkFile` 的顺序会影响最终编号；`mcstd_symbols.json` 必须包含在内，否则 `print_int` 会以未定义 extern 报错。
 
 ## 输出示例
 
@@ -192,7 +275,7 @@ build/craftlang/craftlang/
 ├── pack.mcmeta
 └── data/
     ├── craftlang/function/
-    │   ├── start.mcfunction    初始化 functionSpace/tmp/ifFlag/interrupted、全局变量，宏调用 main
+    │   ├── start.mcfunction    运行时 objective 初始化 + 各单元全局变量初始化 + 宏调用 main
     │   ├── 0.mcfunction        main
     │   ├── 1.mcfunction        scope_test
     │   ├── 1_0.mcfunction      scope_test 内 if 分支体
@@ -201,15 +284,20 @@ build/craftlang/craftlang/
         └── load.json           注册 craftlang:start
 ```
 
+每个编译单元都会生成自己的 `start.mcfunction`；链接器把它们的全局变量初始化内容合并进最终 `start.mcfunction`，再在末尾调用 `main`。树中的编号仅为示例，实际编号取决于 `linkFile` 顺序与符号表顺序。
+
 ## 已知限制（当前实现）
 
-1. **仅支持 `int` 类型**：`initVar`/`setVarToVar` 只接受 `CXType_Int`，其余类型报 `unsupported type` 并终止；浮点、字符、数组、结构体、指针留待 V2.0+。
-2. **不支持循环语句**：`while`/`do-while`/`for` 命中 `deal_cursor` 的 default 分支，抛 `unsupported cursor: WhileStmt` 终止编译。
-3. **函数编号由 AST 遍历顺序决定**：文件名为纯编号，`main` 的编号取决于它前面的 `FunctionDecl` 数量；链接器会按符号表统一重编号，但新增/重排函数仍会改变占位符对应关系。
-4. **任何 libclang 诊断都会终止编译**：`diagCount > 0` 即抛 `parse error`（警告也算），源码需保证零警告。
-5. **craftsim 尚不能执行指令**：`loadDatapack` 可加载数据包、`dueWithFunction` 可完成宏展开，但 `executeFunction` 目前只调用宏展开并 `_DEBUG` 打印结果，不真正执行 mcfunction 指令。
-6. **分词器尚未接入**：`initTokenizeContext`/`tokenize` 已实现但没有调用方，等待与执行链路对接。
-7. **`dueWithFunction` 的宏展开规则**：只有行首 `$` 的行会被处理（去掉该行开头的 `$` 后展开）；无 `$(...)` 时原样返回，不依赖 `source`；`source` 查不到、或某 key 不在宏表中时保留 `$(key)` 原样；宏表值只接受 String 与数值类型，List/Compound/数组跳过。
+1. **仅支持 `int` 类型**：`initVar`/`setVarToVar`/`setConstToVar` 只接受 `CXType_Int`，其余类型报 `unsupported type` 并终止；浮点、字符、数组、结构体、指针留待 V2.0+。`bool`/`true`/`false` 由 `mcstd.h` 宏映射为 int。
+2. **不支持循环语句**：`while`/`do-while`/`for` 命中 `deal_cursor` 的 default 分支，抛 `unsupported cursor: ...` 终止编译；`example/test_while.c`、`test_for.c` 目前不能编译。
+3. **`if` 条件只认 1**：条件表达式的结果会和 1 比较；比较运算产出 1/0，所以 `if (x > 0)` 正常，但 `if (x)` 在 `x = 2` 时不会进入分支。
+4. **int 函数的空 `return`**：`return;` 不会写 `return` objective，也不会设置 `interrupted`，函数会继续执行到末尾；应写 `return <expr>;`。
+5. **任何 libclang 诊断都会终止编译**：`diagCount > 0` 即抛 `parse error`（警告也算），源码需保证零警告。
+6. **编号不保证稳定**：编译单元内按函数/全局变量首次出现编号；链接器按 `linkFile` 顺序和符号表数组顺序重新分配最终编号，而符号表数组由 `unordered_map` 生成，顺序不保证可移植。重排函数会改变中间文件名和占位符，但链接器按符号名映射，链接结果仍然正确。
+7. **craftsim 只实现两个命令**：`say`、`return`；`scoreboard`、`execute`、`function`、`data` 在分发表中为 `nullptr`，执行时输出 `Unknown command` 并跳到行尾。因此它还不能完整执行编译器产出的程序。
+8. **craftsim 状态与调试能力有限**：`Storage`/`Scoreboard`/NBT 路径求值器已实现，但当前没有命令读写它们；没有 `data` 命令；`main.cpp` 固定 `example/test` 和 `test:test`，没有命令行参数或单步调试；宏展开只处理行首（第 0 列）`$` 行。
+9. **`return`/`say` 参数限制**：`return` 只接受一个纯整数字面量（可带正负号），不接受表达式或计分板读取；`say` 原样捕获整行剩余文本，不解析 JSON 文本组件、选择器或转义。
+10. **`dueWithFunction` 的宏展开规则**：见“craftsim 模拟器运行时”；List/Compound/数组/End 不能作为宏值，未知 key 保留 `$(key)`。
 
 ## 许可
 
