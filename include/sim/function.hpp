@@ -45,6 +45,11 @@ namespace craftsim
         std::string_view function;
         std::vector<int> rowStarts;
     };
+    enum TokenizeType
+    {
+        TOKENIZE_NORMAL, // 正常
+        TOKENIZE_LINE    /*从当前位置截到行尾（跳过行首空格，不含 \r/\n），不消费换行符；换行由 TOKENIZE_NORMAL 产生*/
+    };
     struct DueWithFunctionResult
     {
         std::string processedFunction;
@@ -53,6 +58,7 @@ namespace craftsim
     };
     TokenizeContext initTokenizeContext(std::string_view &function);
     void tokenize(TokenizeContext &context, Token &token);
+    void tokenize(TokenizeContext &context, Token &token, TokenizeType type);
 
     // 把函数文本里的 $(key) 宏用 source 对应的 NBT 数据展开，返回处理后的字符串。
     // 不做任何执行，只做纯字符串变换。

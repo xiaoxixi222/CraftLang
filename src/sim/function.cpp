@@ -136,75 +136,30 @@ namespace craftsim
     }
     void tokenize(TokenizeContext &context, Token &token)
     {
-        std::string_view &function = context.function;
-        std::optional<std::pair<int, int>> start = std::nullopt, end = std::nullopt;
-        bool inString = false;
-        while (true)
+        tokenize(context, token, TOKENIZE_NORMAL);
+    }
+    void tokenize(TokenizeContext &context, Token &token, TokenizeType type)
+    {
+        switch (type)
         {
-            int location = context.rowStarts[context.pos.first] + context.pos.second;
-            if (location >= (int)function.size())
+        case TOKENIZE_NORMAL:
+        {
+
+            std::string_view &function = context.function;
+            std::optional<std::pair<int, int>> start = std::nullopt, end = std::nullopt;
+            bool inString = false;
+            while (true)
             {
-                if (start.has_value())
-                {
-                    if (inString)
-                    {
-                        token.tokentype = TOK_ERROR;
-                        return;
-                    }
-                    end = context.pos;
-                    end.value().second--;
-                    token.start = start.value();
-                    token.end = end.value();
-                    token.tokentype = TOK_WORD;
-                    int startLocation = context.rowStarts[start.value().first] + start.value().second;
-                    token.string = function.substr(startLocation, location - startLocation);
-                    return;
-                }
-                else
-                {
-                    token.start = std::pair<int, int>(0, 0);
-                    token.end = std::pair<int, int>(0, 0);
-                    token.string = "";
-                    token.tokentype = TOK_END;
-                    return;
-                }
-            }
-            char c = function[location];
-            if (c == '"')
-            {
-                if (!inString)
-                {
-                    if (!start.has_value())
-                    {
-                        start = context.pos;
-                        context.pos.second++;
-                        inString = true;
-                        continue;
-                    }
-                    else
-                    {
-                        token.tokentype = TOK_ERROR;
-                        return;
-                    }
-                }
-                else
-                {
-                    end = context.pos;
-                    context.pos.second++;
-                    token.start = start.value();
-                    token.end = end.value();
-                    token.tokentype = TOK_STRING;
-                    int startLocation = context.rowStarts[start.value().first] + start.value().second;
-                    token.string = function.substr(startLocation, location + 1 - startLocation);
-                    return;
-                }
-            }
-            if (!inString)
-            {
-                if ((c == ' ' || c == '\r' || c == '\n'))
+                int location = context.rowStarts[context.pos.first] + context.pos.second;
+                if (location >= (int)function.size())
                 {
                     if (start.has_value())
                     {
+                        if (inString)
+                        {
+                            token.tokentype = TOK_ERROR;
+                            return;
+                        }
                         end = context.pos;
                         end.value().second--;
                         token.start = start.value();
@@ -214,54 +169,158 @@ namespace craftsim
                         token.string = function.substr(startLocation, location - startLocation);
                         return;
                     }
-                }
-                if (c == '\n')
-                {
-                    token.start = context.pos;
-                    token.end = context.pos;
-                    token.string = function.substr(location, 1);
-                    token.tokentype = TOK_NEWLINE;
-                    context.pos.first++;
-                    context.pos.second = 0;
-                    context.rowStarts.push_back(location + 1);
-                    return;
-                }
-                if (c == '\r')
-                {
-                    // CRLF：跳过 \r，由后面的 \n 生成唯一的换行 token
-                    if (location + 1 < (int)function.size() && function[location + 1] == '\n')
+                    else
                     {
+                        token.start = std::pair<int, int>(0, 0);
+                        token.end = std::pair<int, int>(0, 0);
+                        token.string = "";
+                        token.tokentype = TOK_END;
+                        return;
+                    }
+                }
+                char c = function[location];
+                if (c == '"')
+                {
+                    if (!inString)
+                    {
+                        if (!start.has_value())
+                        {
+                            start = context.pos;
+                            context.pos.second++;
+                            inString = true;
+                            continue;
+                        }
+                        else
+                        {
+                            token.tokentype = TOK_ERROR;
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        end = context.pos;
+                        context.pos.second++;
+                        token.start = start.value();
+                        token.end = end.value();
+                        token.tokentype = TOK_STRING;
+                        int startLocation = context.rowStarts[start.value().first] + start.value().second;
+                        token.string = function.substr(startLocation, location + 1 - startLocation);
+                        return;
+                    }
+                }
+                if (!inString)
+                {
+                    if ((c == ' ' || c == '\r' || c == '\n'))
+                    {
+                        if (start.has_value())
+                        {
+                            end = context.pos;
+                            end.value().second--;
+                            token.start = start.value();
+                            token.end = end.value();
+                            token.tokentype = TOK_WORD;
+                            int startLocation = context.rowStarts[start.value().first] + start.value().second;
+                            token.string = function.substr(startLocation, location - startLocation);
+                            return;
+                        }
+                    }
+                    if (c == '\n')
+                    {
+                        token.start = context.pos;
+                        token.end = context.pos;
+                        token.string = function.substr(location, 1);
+                        token.tokentype = TOK_NEWLINE;
+                        context.pos.first++;
+                        context.pos.second = 0;
+                        context.rowStarts.push_back(location + 1);
+                        return;
+                    }
+                    if (c == '\r')
+                    {
+                        // CRLF：跳过 \r，由后面的 \n 生成唯一的换行 token
+                        if (location + 1 < (int)function.size() && function[location + 1] == '\n')
+                        {
+                            context.pos.second++;
+                            continue;
+                        }
+                        // 单独的 \r 也按换行处理
+                        token.start = context.pos;
+                        token.end = context.pos;
+                        token.string = function.substr(location, 1);
+                        token.tokentype = TOK_NEWLINE;
+                        context.pos.first++;
+                        context.pos.second = 0;
+                        context.rowStarts.push_back(location + 1);
+                        return;
+                    }
+                    if (c == ' ')
+                    {
+
                         context.pos.second++;
                         continue;
                     }
-                    // 单独的 \r 也按换行处理
-                    token.start = context.pos;
-                    token.end = context.pos;
-                    token.string = function.substr(location, 1);
-                    token.tokentype = TOK_NEWLINE;
-                    context.pos.first++;
-                    context.pos.second = 0;
-                    context.rowStarts.push_back(location + 1);
-                    return;
+                    if (!start.has_value())
+                        start = context.pos;
                 }
-                if (c == ' ')
+                else
                 {
-
-                    context.pos.second++;
-                    continue;
+                    if (c == '\n' || c == '\r')
+                    {
+                        token.tokentype = TOK_ERROR;
+                        return;
+                    }
                 }
-                if (!start.has_value())
-                    start = context.pos;
+                context.pos.second++;
             }
-            else
+        }
+        case TOKENIZE_LINE:
+        {
+            std::string_view &function = context.function;
+            size_t location = static_cast<size_t>(context.rowStarts[context.pos.first] +
+                                                  context.pos.second);
+            if (location >= function.size())
             {
-                if (c == '\n' || c == '\r')
-                {
-                    token.tokentype = TOK_ERROR;
-                    return;
-                }
+                token.start = context.pos;
+                token.end = context.pos;
+                token.string = "";
+                token.tokentype = TOK_END;
+                return;
             }
-            context.pos.second++;
+
+            // 跳过行首空格
+            while (location < function.size() && function[location] == ' ')
+            {
+                ++location;
+                ++context.pos.second;
+            }
+            if (location >= function.size())
+            {
+                token.start = context.pos;
+                token.end = context.pos;
+                token.string = "";
+                token.tokentype = TOK_END;
+                return;
+            }
+
+            size_t endLocation = function.find_first_of("\r\n", location);
+            if (endLocation == std::string_view::npos)
+                endLocation = function.size();
+
+            size_t length = endLocation - location;
+
+            token.start = context.pos;
+            if (length == 0)
+                token.end = context.pos;
+            else
+                token.end = std::pair<int, int>(context.pos.first,
+                                                context.pos.second + static_cast<int>(length) - 1);
+            token.string = function.substr(location, length);
+            token.tokentype = TOK_WORD;
+
+            // 只移动到行尾，换行符留给 TOKENIZE_NORMAL 产生 TOK_NEWLINE
+            context.pos.second += static_cast<int>(length);
+            return;
+        }
         }
     }
     DueWithFunctionResult dueWithFunction(std::string function, std::optional<std::string> source, std::optional<NbtPath> path)
@@ -365,16 +424,23 @@ namespace craftsim
         std::string_view processed_function_view(processed_function);
         TokenizeContext context = initTokenizeContext(processed_function_view);
         Token token{};
+        // 先取第一个 token；之后每个 handler 结束时 token 都必须停在
+        // NEWLINE 或 END 上。
+        tokenize(context, token);
         while (true)
         {
 #ifdef _DEBUG
             std::cout << "Tokenizing " << token.tokentype << std::endl;
 #endif
+            // 先检查再 tokenize：handler 可能已经把 token 留在 END 上
+            // （最后一行没有换行时），这里绝不能再 tokenize 一次。
             if (token.tokentype == TOK_END)
                 return ReturnState{0, false, false, output, error, warn, info};
-            tokenize(context, token);
             if (token.tokentype == TOK_NEWLINE)
+            {
+                tokenize(context, token);
                 continue;
+            }
             auto it = commandToFunction.find(token.string);
             if (it != commandToFunction.end() && it->second != nullptr)
             {
@@ -401,58 +467,49 @@ namespace craftsim
         ReturnState runSay(Token &token, TokenizeContext &context)
         {
             auto start = token.start;
+            tokenize(context, token, TOKENIZE_LINE);
+
+            if (token.tokentype == TOK_END)
+                return ReturnState{-1, false, false, "", "say command requires a message argument", "", ""};
+
+            std::string message(token.string);
+
+            // 行模式停在 \r/\n 前；补一次普通 tokenize，
+            // 让 handler 结束时 token 一定落在 NEWLINE 或 END 上。
+            // 如果这一行就是文件末尾，这里会拿到 END；
+            // executeFunction 会先检查 END 再决定是否继续，不会重复 tokenize。
             tokenize(context, token);
 
-            ReturnState ret;
-            if (token.tokentype != TOK_WORD && token.tokentype != TOK_STRING)
-            {
-                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
-                    tokenize(context, token);
+            if (message.empty())
                 return ReturnState{-1, false, false, "", "say command requires a message argument", "", ""};
-            }
-            else if (token.tokentype == TOK_STRING)
-            {
-                token.string.remove_prefix(1);
-                token.string.remove_suffix(1);
-                std::string message = std::string(token.string); // 去掉引号
-                ret = ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
-            }
-            else
-            {
-                std::string message = std::string(token.string);
-                ret = ReturnState{0, true, false, message + "\n", "", "", "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
-            }
-            tokenize(context, token);
-            if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
-            {
-                while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
-                    tokenize(context, token);
-                ret.error = "say command only takes one argument";
-                ret.successFlag = false;
-            }
-            return ret;
+
+            return ReturnState{0, true, false, message + "\n", "", "",
+                               "output(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + message + "\n"};
         }
         ReturnState runReturn(Token &token, TokenizeContext &context)
         {
             auto start = token.start;
             tokenize(context, token);
             ReturnState ret;
-            if (isPureInteger(token.string))
+            if (token.tokentype == TOK_WORD && isPureInteger(token.string))
             {
                 int returnValue = std::stoi(std::string(token.string));
                 ret = ReturnState{returnValue, true, true, "", "", "", "return(" + std::to_string(start.first) + ":" + std::to_string(start.second) + "): " + std::to_string(returnValue) + "\n"};
+                tokenize(context, token);
+                if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                {
+                    while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
+                        tokenize(context, token);
+                    ret.error = "return command only takes one argument";
+                    ret.successFlag = false;
+                }
             }
             else
             {
-                ret = ReturnState{-1, false, true, "", "return command requires an integer argument", "", ""};
-            }
-            tokenize(context, token);
-            if (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
-            {
+                // 缺参数时 token 可能已经是行尾，不能再 tokenize，否则会吞掉下一行
                 while (token.tokentype != TOK_NEWLINE && token.tokentype != TOK_END)
                     tokenize(context, token);
-                ret.error = "return command only takes one argument";
-                ret.successFlag = false;
+                ret = ReturnState{-1, false, true, "", "return command requires an integer argument", "", ""};
             }
             return ret;
         }
