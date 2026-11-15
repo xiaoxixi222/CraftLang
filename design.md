@@ -160,19 +160,72 @@
 
 | # | 命令 | 语义要点 | 当前 craftsim |
 |---|------|----------|---------------|
-| 1 | `scoreboard objectives add <obj> dummy` / `remove <obj>` | 记分项创建/删除 | 未实现 |
-| 2 | `scoreboard players set/add/remove <e> <obj> <int>` | 实体恒为 craftlang（单一假玩家） | 未实现 |
-| 3 | `scoreboard players operation <e> <o> <op> <e2> <o2>` | op 全集：`=` `+=` `-=` `*=` `/=` `%=` | 未实现 |
-| 4 | `execute if/unless score ... <cmp> ... run <cmd>` | cmp：`=` `>` `>=` `<` `<=`；`!=` 用 `unless =` 实现 | 未实现 |
-| 5 | `execute if/unless score ... matches <range> run <cmd>` | range：`N` / `N..M` / `..M` / `N..` | 未实现 |
-| 6 | `execute store result storage <ns> <key> int <scale> run scoreboard players get ...` | storage 只存 int | 未实现 |
-| 7 | `function <ns>:<path> with storage <ns>` | 调用 = 绑定宏快照 + 压栈 | 未实现 |
+| 1 | `scoreboard objectives add <obj> dummy` / `remove <obj>` | 记分项创建/删除 | 已实现 |
+| 2 | `scoreboard players set/add/remove <e> <obj> <int>` | 实体恒为 craftlang（单一假玩家） | 已实现 |
+| 3 | `scoreboard players operation <e> <o> <op> <e2> <o2>` | op 全集：`=` `+=` `-=` `*=` `/=` `%=` | 已实现 |
+| 4 | `execute if/unless score ... <cmp> ... run <cmd>` | cmp：`=` `>` `>=` `<` `<=`；`!=` 用 `unless =` 实现 | 已实现 |
+| 5 | `execute if/unless score ... matches <range> run <cmd>` | range：`N` / `N..M` / `..M` / `N..` | 已实现 |
+| 6 | `execute store result storage <ns> <key> int <scale> run scoreboard players get ...` | storage 只存 int | 已实现 |
+| 7 | `function <ns>:<path> with storage <ns>` | 调用 = 绑定宏快照 + 压栈 | 已实现 |
 | 8 | `return <int>` | 中止当前函数帧 | 已实现（仅纯整数字面量） |
 | 9 | `say <text>` | `print_int = $say $(0)`，捕获此行即测试输出 | 已实现（行模式捕获整行） |
 | 10 | `$-宏行` | 文本替换 `$(key)` 后按上面 1-9 执行 | 已实现 `dueWithFunction`，仅行首 `$` |
 
-当前 `craftsim` 的命令分发表中，`scoreboard` 已注册 `runScoreboard`，但 `objectives` / `players` 子命令仍是只消费整行的占位实现；`execute`、`function`、`data` 仍是 `nullptr`。`data` 尚未列入上面的编译器发射子集。
+当前 `craftsim` 已实现 `scoreboard`、`execute`、`function`；`data` 仍未实现，尚未列入上面的编译器发射子集。目标 objective 必须存在；分数缺失按 0 并记 warning；objective 缺失记 warning、不自动创建；除零/模零记 error、目标分数不变且不终止函数。除 `return` 外，命令失败都只终止当前命令并继续下一行。
 
+## 具体行为
+
+# scoreboard
+```text
+scoreboard
+├─ objectives
+│  ├─ add    → <objective>  dummy
+│  └─ remove → <objective>
+└─ players
+   ├─ set       → <player> <objective> <int>
+   ├─ add       → <player> <objective> <int>
+   ├─ remove    → <player> <objective> <int>
+   ├─ get       → <player> <objective>
+   └─ operation → <player> <objective> <op> <player> <objective>
+```
+
+# execute
+```text
+execute
+├─ run → <command>
+├─ if
+│  └─ score → <player> <objective>
+│              ├─ <cmp>   <player> <objective> → run → <command>
+│              └─ matches <range>                → run → <command>
+├─ unless
+│  └─ score → （与 if 完全相同）
+└─ store
+   └─ result
+      └─ storage → <path> int → run → <command>
+```
+
+# function
+```text
+function
+├─ <namespace>:<path>
+│  ├─ (行尾)                                        无宏参数调用
+│  └─ with
+│     └─ storage → <namespace> → [<path>] → (行尾)   从 storage 绑定宏快照
+(直接调用executeFunction)
+```
+
+# 符号
+```text
+<op>      → = | += | -= | *= | /= | %=
+<cmp>     → = | > | >= | < | <=
+<range>   → <int> | <int>..<int> | ..<int> | <int>..
+<int>     → [+-]?[0-9]+
+<objective> → 标识符
+<path>    → NBT 路径(现在仅支持一个单词/一层(无"."等特殊符号))
+<player>  → 玩家名字一个word
+<command> → 一条指令，直接给commandToFunction解析处理
+<namespace> → 命名空间
+```
 ---
 
 ## 结语

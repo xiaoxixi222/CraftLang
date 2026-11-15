@@ -87,5 +87,7 @@ namespace craftsim
         ReturnState runSay(Token &token, TokenizeContext &context);
         ReturnState runReturn(Token &token, TokenizeContext &context);
         ReturnState runScoreboard(Token &token, TokenizeContext &context);
+        ReturnState runExecute(Token &token, TokenizeContext &context);
+        ReturnState runFunction(Token &token, TokenizeContext &context);
     } // namespace commandRunner
 } // namespace craftsim

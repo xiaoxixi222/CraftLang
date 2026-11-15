@@ -123,12 +123,16 @@ build\craftsim.exe
 当前示例 `example/test/data/test/function/test.mcfunction` 的关键预期：
 
 - 输出包含 `Return value: 0`
-- 输出包含 `123456`
-- 输出包含 `"this is a test"`
-- 输出包含 `Info: (7:0) return: 0`
-- 不包含 `Unknown command: ,`
-- `Warn: (6:0) Unknown command: execute` 目前是预期的；`scoreboard` 已注册 handler，当前占位实现只跳过整行，不应再出现 `Unknown command: scoreboard`。
-- 不要把预期的 `execute` warning 当成失败；如果出现新的 command warning，需要按实际实现更新这段预期。
+- 输出包含 `123456`、`"this is a test"`、`callee 24`、`callee 0`、`plain-ok`、`execute-run-ok`
+- 输出包含 `unless-ne-ok`、`if-ge-ok`、`if-range-ok`、`unless-range-ok`
+- 输出包含 `div-zero-continued`、`callee 7`、`missing-score-continued`、`callee 1`
+- 输出包含 `missing-objective-continued`、`missing-source-continued`、`store-score-rejected`
+- 输出包含 `Error: (33:0) scoreboard players operation: division by zero`
+- 输出包含 `Warn: (38:0) score not set for noscore in sb, using 0`
+- 输出包含 `Warn: (43:0) scoreboard objective not found: missingobj`
+- 输出包含 `Info: (25:0) if score p sb = q sb -> false`
+- 不包含 `if-eq-bad`、`should-not-print`
+- 不包含 `Unknown command`
 - 如果本次改动修改了 `example/test/...`，预期输出要按新内容同步确认。
 
 如果改动涉及分词器、`say`、`return` 或 `executeFunction`，额外验证：
